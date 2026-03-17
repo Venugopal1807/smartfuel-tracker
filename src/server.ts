@@ -1,8 +1,13 @@
 import express from "express";
 import cors from "cors";
 import * as dotenv from "dotenv";
+import { eq, gte, sql, and } from "drizzle-orm";
+
+import { db } from "./db/index";
+import { fuelLogs } from "./db/schema";
 import { processSyncBatch } from "./db/logic";
-import type { SyncRequestBody, IncomingFuelLog } from "./types";
+import { authenticateToken } from "./middleware/auth";
+import { SyncRequestSchema } from "./schemas/logSchema";
 
 dotenv.config();
 
@@ -18,43 +23,22 @@ app.get("/api/health", (_req, res) => {
   res.json({ status: "SmartFuel Backend Active" });
 });
 
-// ─── Sync Endpoint ──────────────────────────────────────────
-app.post("/api/logs/sync", async (req, res) => {
+// ─── Sync Endpoint (Protected + Validated) ──────────────────
+app.post("/api/logs/sync", authenticateToken, async (req, res) => {
   try {
-    const body = req.body as SyncRequestBody;
-
-    // --- Validation ---
-    if (!body.logs || !Array.isArray(body.logs) || body.logs.length === 0) {
+    // Zod validation — replaces the old manual checks
+    const parsed = SyncRequestSchema.safeParse(req.body);
+    if (!parsed.success) {
       res.status(400).json({
         success: false,
-        message: "Request body must contain a non-empty 'logs' array.",
-      });
-      return;
-    }
-
-    const invalidLogs: number[] = [];
-    body.logs.forEach((log: IncomingFuelLog, index: number) => {
-      if (
-        !log.mobileOfflineId ||
-        typeof log.userId !== "number" ||
-        typeof log.volume !== "number" ||
-        log.volume <= 0 ||
-        !log.timestamp
-      ) {
-        invalidLogs.push(index);
-      }
-    });
-
-    if (invalidLogs.length > 0) {
-      res.status(400).json({
-        success: false,
-        message: `Invalid log entries at indices: [${invalidLogs.join(", ")}]. Each log needs a valid mobileOfflineId, userId, volume > 0, and timestamp.`,
+        message: "Validation failed.",
+        errors: parsed.error.flatten().fieldErrors,
       });
       return;
     }
 
     // --- Idempotent Batch Processing ---
-    const processedCount = await processSyncBatch(body.logs);
+    const processedCount = await processSyncBatch(parsed.data.logs);
 
     res.status(200).json({
       success: true,
@@ -73,10 +57,6 @@ app.post("/api/logs/sync", async (req, res) => {
   }
 });
 
-import { db } from "./db/index";
-import { fuelLogs } from "./db/schema";
-import { eq, gte, sql, and } from "drizzle-orm";
-
 // ─── Analytics Endpoint ──────────────────────────────────────
 app.get("/api/stats/:userId", async (req, res) => {
   try {
@@ -86,10 +66,8 @@ app.get("/api/stats/:userId", async (req, res) => {
       return;
     }
 
-    // Calculate time 24 hours ago
     const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    // Aggregate sum and count using Drizzle SQL operators
     const [stats] = await db
       .select({
         totalVolume: sql<number>`COALESCE(SUM(${fuelLogs.volumeDispensed}), 0)`,
@@ -115,7 +93,6 @@ app.get("/api/stats/:userId", async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch stats" });
   }
 });
-
 
 // ─── Start Server ───────────────────────────────────────────
 app.listen(PORT, () => {

@@ -1,6 +1,6 @@
 import { db } from "./index";
 import { fuelLogs } from "./schema";
-import type { IncomingFuelLog } from "../types";
+import type { ValidatedFuelLog } from "../schemas/logSchema";
 
 /**
  * Processes a batch of fuel logs from the mobile app using an idempotent,
@@ -16,7 +16,7 @@ import type { IncomingFuelLog } from "../types";
  * @returns The number of rows that were actually freshly inserted.
  */
 export const processSyncBatch = async (
-  logs: IncomingFuelLog[]
+  logs: ValidatedFuelLog[]
 ): Promise<number> => {
   let insertedCount = 0;
 
