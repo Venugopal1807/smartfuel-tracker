@@ -1,0 +1,33 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web"
+  },
+  "dependencies": {
+    "axios": "^1.13.6",
+    "expo": "~55.0.6",
+    "expo-crypto": "~55.0.9",
+    "expo-location": "~55.1.2",
+    "expo-network": "~55.0.8",
+    "expo-sqlite": "~55.0.10",
+    "expo-status-bar": "~55.0.4",
+    "lucide-react-native": "^0.577.0",
+    "nativewind": "^4.2.3",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "react-native-reanimated": "4.2.1",
+    "react-native-safe-area-context": "~5.6.2",
+    "react-native-svg": "15.15.3",
+    "tailwindcss": "^3.4.19"
+  },
+  "devDependencies": {
+    "@types/react": "~19.2.2",
+    "typescript": "~5.9.2"
+  },
+  "private": true
+}
