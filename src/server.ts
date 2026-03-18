@@ -4,6 +4,7 @@ import * as dotenv from "dotenv";
 import { processSyncBatch } from "./db/logic";
 import type { SyncRequestBody, IncomingFuelLog } from "./types";
 import { authenticateToken } from "./middleware/auth";
+import authRouter from "./api/auth";
 
 dotenv.config();
 
@@ -13,6 +14,7 @@ const PORT = process.env.PORT || 3000;
 // ─── Middleware ──────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
+app.use("/api/auth", authRouter);
 
 // ─── Health Check ───────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
