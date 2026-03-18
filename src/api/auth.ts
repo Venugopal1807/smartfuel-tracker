@@ -110,10 +110,16 @@ router.patch("/profile", authenticateToken, async (req: any, res) => {
       res.status(401).json({ success: false, message: "Unauthorized" });
       return;
     }
-    const { vehicle_number, bank_name, account_number, ifsc_code } = req.body || {};
+    const { name, vehicle_number, bank_name, account_number, ifsc_code } = req.body || {};
 
-    if (vehicle_number) {
-      await db.update(drivers).set({ vehicleNumber: vehicle_number }).where(eq(drivers.id, driverId));
+    if (name || vehicle_number) {
+      await db
+        .update(drivers)
+        .set({
+          ...(name ? { name } : {}),
+          ...(vehicle_number ? { vehicleNumber: vehicle_number } : {}),
+        })
+        .where(eq(drivers.id, driverId));
     }
 
     if (bank_name || account_number || ifsc_code) {

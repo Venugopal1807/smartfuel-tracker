@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } fro
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
+import { enqueueSyncEvent } from "../db/sqlite";
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
 
@@ -11,6 +12,7 @@ const ProfileScreen: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<any>(null);
   const [vehicleNumber, setVehicleNumber] = useState("");
+  const [name, setName] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
@@ -24,6 +26,7 @@ const ProfileScreen: React.FC = () => {
       });
       const data = res.data?.data;
       setProfile(data);
+       setName(data?.name || "");
       setVehicleNumber(data?.vehicleNumber || "");
       setBankName(data?.bankName || "");
       setAccountNumber(data?.accountNumber || "");
@@ -46,6 +49,7 @@ const ProfileScreen: React.FC = () => {
       await axios.patch(
         `${API_URL}/api/auth/profile`,
         {
+          name,
           vehicle_number: vehicleNumber,
           bank_name: bankName,
           account_number: accountNumber,
@@ -56,7 +60,14 @@ const ProfileScreen: React.FC = () => {
       Alert.alert("Saved", "Profile updated");
       fetchProfile();
     } catch (err: any) {
-      Alert.alert("Error", err.response?.data?.message || "Failed to save profile");
+      Alert.alert("Offline", "Profile will sync when online.");
+      await enqueueSyncEvent("PROFILE_UPDATE_SYNC", {
+        name,
+        vehicle_number: vehicleNumber,
+        bank_name: bankName,
+        account_number: accountNumber,
+        ifsc_code: ifsc,
+      });
     } finally {
       setLoading(false);
     }
@@ -74,7 +85,7 @@ const ProfileScreen: React.FC = () => {
       {profile && (
         <>
           <Text style={styles.label}>Name</Text>
-          <TextInput style={styles.input} value={profile.name} editable={false} />
+          <TextInput style={styles.input} value={name} onChangeText={setName} />
 
           <Text style={styles.label}>Phone</Text>
           <TextInput style={styles.input} value={profile.phone} editable={false} />

@@ -26,6 +26,10 @@ const handlePaymentRetry = async (payload: any) => {
   });
 };
 
+const handleProfileSync = async (payload: any) => {
+  await axios.patch(`${API_URL}/api/auth/profile`, payload);
+};
+
 export const syncPendingEvents = async () => {
   const online = await checkConnectivity();
   if (!online) return;
@@ -37,6 +41,9 @@ export const syncPendingEvents = async () => {
       switch (evt.type) {
         case "PAYMENT_VERIFY_RETRY":
           await handlePaymentRetry(payload);
+          break;
+        case "PROFILE_UPDATE_SYNC":
+          await handleProfileSync(payload);
           break;
         default:
           // Unhandled types can be requeued or logged
