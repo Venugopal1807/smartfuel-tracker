@@ -1,11 +1,11 @@
 import React, { useMemo, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, Alert, TextInput } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
 import { enqueueAction } from "../db/sqlite";
 import axios from "axios";
 import { processPayment } from "../services/paymentService";
+import * as Sharing from "expo-sharing";
+import { generateInvoice } from "../services/pdfService";
 
 const COLORS = {
   primary: "#4F46E5",
@@ -43,6 +43,8 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
   const [authorized, setAuthorized] = useState(false);
   const [finalVolume, setFinalVolume] = useState(0);
   const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [invoiceUri, setInvoiceUri] = useState<string | null>(null);
   const amount = useMemo(() => volume * RATE, [volume]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -99,7 +101,8 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
     try {
       setProcessingPayment(true);
       await processPayment(amount, orderId || "demo-order");
-      await generateAndSharePDF();
+      setPaymentSuccess(true);
+      await createAndShareInvoice();
     } catch (err: any) {
       Alert.alert("Payment pending", "Will retry payment verification when online.");
     } finally {
@@ -111,48 +114,24 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
     await recordDispense();
   };
 
-  const generateAndSharePDF = async () => {
-    if (sharing) return;
-    setSharing(true);
+  const createAndShareInvoice = async () => {
     try {
-      const now = new Date();
-      const html = `
-        <html>
-          <head>
-            <meta name="viewport" content="initial-scale=1.0, width=device-width" />
-            <style>
-              body { font-family: -apple-system, Roboto, 'Segoe UI', sans-serif; color: #111827; padding: 24px; }
-              .header { background: #4F46E5; color: #fff; padding: 16px; border-radius: 6px; }
-              .title { margin: 0; font-size: 20px; font-weight: 800; }
-              .section { margin-top: 20px; padding: 16px; border: 1px solid #E5E7EB; border-radius: 6px; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-              .label { color: #6B7280; font-size: 13px; }
-              .value { font-weight: 700; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1 class="title">SmartFuel B2B Receipt</h1>
-              <div style="margin-top:4px; font-size:14px;">Option C • PDF Receipt</div>
-            </div>
-            <div class="section">
-              <div class="row"><span class="label">Client</span><span class="value">Apollo Hospital</span></div>
-              <div class="row"><span class="label">Pump ID</span><span class="value">${pumpId}</span></div>
-              <div class="row"><span class="label">Date/Time</span><span class="value">${now.toLocaleString()}</span></div>
-              <div class="row"><span class="label">Volume Dispensed</span><span class="value">${volume.toFixed(2)} L</span></div>
-              <div class="row"><span class="label">Rate</span><span class="value">₹ 90.00 / L</span></div>
-              <div class="row"><span class="label">Total Amount</span><span class="value">₹ ${amount.toFixed(2)}</span></div>
-            </div>
-            <p style="margin-top:16px; color:#6B7280; font-size:12px;">Generated offline by SmartFuel. Sync to HQ when online.</p>
-          </body>
-        </html>
-      `;
-
-      const { uri } = await Print.printToFileAsync({ html });
+      setSharing(true);
+      const uri = await generateInvoice({
+        orderNumber: orderId || "demo-order",
+        customerName: customer,
+        area: route.params?.orderOtp || "Area",
+        vehicleReg: pumpId,
+        volume: finalVolume || volume,
+        total: amount,
+        rate: RATE,
+        transactionId: `tx_${Math.random().toString(36).slice(2, 8)}`,
+      });
+      setInvoiceUri(uri);
       await Sharing.shareAsync(uri);
     } catch (err: any) {
-      console.error("PDF share error", err?.message || err);
-      Alert.alert("Share failed", "Could not generate or share the receipt.");
+      console.error("Invoice error", err?.message || err);
+      Alert.alert("Invoice failed", "Could not generate invoice.");
     } finally {
       setSharing(false);
     }
@@ -277,8 +256,8 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={generateAndSharePDF}
-              disabled={sharing}
+              onPress={createAndShareInvoice}
+              disabled={sharing || processingPayment}
               style={{
                 width: "100%",
                 borderWidth: 1,
@@ -286,7 +265,7 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
                 paddingVertical: 14,
                 borderRadius: 4,
                 alignItems: "center",
-                opacity: sharing ? 0.6 : 1,
+                opacity: sharing || processingPayment ? 0.6 : 1,
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "700" }}>
@@ -297,6 +276,23 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
                   : "Generate PDF Receipt & View Earnings"}
               </Text>
             </TouchableOpacity>
+
+            {paymentSuccess && (
+              <TouchableOpacity
+                onPress={createAndShareInvoice}
+                style={{
+                  width: "100%",
+                  paddingVertical: 12,
+                  borderRadius: 4,
+                  alignItems: "center",
+                  backgroundColor: "#EEF2FF",
+                  borderColor: COLORS.border,
+                  borderWidth: 1,
+                }}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "700" }}>Download Invoice</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         {!running && !authorized && (
