@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { View, Text, FlatList, Alert, TouchableOpacity } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import { getPendingActions, enqueueAction } from "../db/sqlite";
+import { processSyncQueue } from "../services/syncService";
 
 const COLORS = {
   primary: "#4F46E5",
@@ -45,6 +46,7 @@ const Card: React.FC<{ children: React.ReactNode; style?: any }> = ({ children, 
 
 const DashboardScreen: React.FC = () => {
   const [pendingCount, setPendingCount] = useState(0);
+  const [syncing, setSyncing] = useState(false);
 
   const loadPending = useCallback(async () => {
     try {
@@ -80,6 +82,24 @@ const DashboardScreen: React.FC = () => {
     }
   };
 
+  const onSync = async () => {
+    try {
+      setSyncing(true);
+      const result = await processSyncQueue();
+      await loadPending();
+      if (result.success) {
+        Alert.alert("Sync complete", `Processed ${result.processedCount} item(s).`);
+      } else {
+        Alert.alert("Sync failed", result.error);
+      }
+    } catch (err) {
+      console.error("Sync error", err);
+      Alert.alert("Sync error", "Unable to process queue right now.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <View style={{ flex: 1, backgroundColor: "#fff" }}>
       <View style={{ paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderColor: COLORS.border }}>
@@ -92,6 +112,23 @@ const DashboardScreen: React.FC = () => {
             <Text style={{ fontSize: 12, color: COLORS.muted }}>Pending Offline Syncs</Text>
             <Text style={{ fontSize: 22, fontWeight: "800", color: COLORS.text, marginTop: 4 }}>{pendingCount}</Text>
           </Card>
+          <TouchableOpacity
+            onPress={onSync}
+            disabled={syncing}
+            style={{
+              flex: 1,
+              backgroundColor: syncing ? "#9CA3AF" : COLORS.primary,
+              borderRadius: 4,
+              alignItems: "center",
+              justifyContent: "center",
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>
+              {syncing ? "Syncing..." : "Sync Now"}
+            </Text>
+          </TouchableOpacity>
           <Card style={{ flex: 1 }}>
             <Text style={{ fontSize: 12, color: COLORS.muted }}>Completed Jobs</Text>
             <Text style={{ fontSize: 22, fontWeight: "800", color: COLORS.text, marginTop: 4 }}>—</Text>
