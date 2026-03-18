@@ -44,4 +44,26 @@ router.patch("/:id/accept", async (req, res) => {
   }
 });
 
+router.patch("/:id/complete", async (req, res) => {
+  try {
+    const orderId = req.params.id;
+    const { final_volume } = req.body || {};
+    const updated = await db
+      .update(orders)
+      .set({ status: "DELIVERED", measurementFinalVolume: final_volume })
+      .where(eq(orders.id, orderId))
+      .returning();
+
+    if (!updated.length) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+
+    res.json({ success: true, data: updated[0] });
+  } catch (err: any) {
+    console.error("Complete order error", err?.message || err);
+    res.status(500).json({ success: false, message: "Failed to complete order" });
+  }
+});
+
 export default router;

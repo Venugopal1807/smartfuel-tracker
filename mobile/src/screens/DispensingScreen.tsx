@@ -1,9 +1,10 @@
 import React, { useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Alert, TextInput } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { enqueueAction } from "../db/sqlite";
+import axios from "axios";
 
 const COLORS = {
   primary: "#4F46E5",
@@ -15,7 +16,7 @@ const COLORS = {
 };
 
 interface Props {
-  route: { params?: { customer?: string; pumpId?: string } };
+  route: { params?: { customer?: string; pumpId?: string; orderId?: string; orderOtp?: string } };
 }
 
 const formatVolume = (value: number) => value.toFixed(2).padStart(6, "0");
@@ -32,9 +33,14 @@ const escapeHtml = (val: string) =>
 const DispensingScreen: React.FC<Props> = ({ route }) => {
   const customer = escapeHtml(route.params?.customer || "Apollo Hospital (Generator B)");
   const pumpId = escapeHtml(route.params?.pumpId || "MDU_772");
+  const orderId = route.params?.orderId;
+  const orderOtp = route.params?.orderOtp || "1234";
   const [volume, setVolume] = useState(0);
   const [running, setRunning] = useState(true);
   const [sharing, setSharing] = useState(false);
+  const [otpInput, setOtpInput] = useState("");
+  const [authorized, setAuthorized] = useState(false);
+  const [finalVolume, setFinalVolume] = useState(0);
   const amount = useMemo(() => volume * RATE, [volume]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -42,7 +48,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
     React.useCallback(() => {
       if (running) {
         intervalRef.current = setInterval(() => {
-          setVolume((v) => Number((v + 0.28).toFixed(2)));
+          setVolume((v) => {
+            const next = Number((v + 0.28).toFixed(2));
+            setFinalVolume(next);
+            return next;
+          });
         }, 100);
       }
       return () => {
@@ -73,7 +83,17 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    setFinalVolume(volume);
     await recordDispense();
+    if (orderId) {
+      try {
+        await axios.patch(`${process.env.API_URL || "http://localhost:3000"}/api/orders/${orderId}/complete`, {
+          final_volume: volume,
+        });
+      } catch (err: any) {
+        console.error("Complete order failed", err?.message || err);
+      }
+    }
   };
 
   const onCollectPayment = async () => {
@@ -151,6 +171,22 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
       </View>
 
       <View style={{ paddingHorizontal: 16 }}>
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "700", marginBottom: 6 }}>Enter Order OTP</Text>
+          <TextInput
+            value={otpInput}
+            onChangeText={(t) => setOtpInput(t.slice(0, 6))}
+            keyboardType="number-pad"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 4,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+            }}
+          />
+        </View>
+
         <View
           style={{
             backgroundColor: "#fff",
@@ -247,6 +283,28 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
               </Text>
             </TouchableOpacity>
           </View>
+        )}
+        {!running && !authorized && (
+          <TouchableOpacity
+            onPress={() => {
+              if (otpInput === orderOtp) {
+                setAuthorized(true);
+                setRunning(true);
+              } else {
+                Alert.alert("Invalid OTP", "Please enter the correct Order OTP to start dispensing.");
+              }
+            }}
+            style={{
+              marginTop: 12,
+              width: "100%",
+              backgroundColor: "#4F46E5",
+              paddingVertical: 14,
+              borderRadius: 4,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Start Dispensing</Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
