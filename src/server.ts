@@ -22,7 +22,7 @@ app.use("/api/payments", paymentsRouter);
 
 // ─── Health Check ───────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "SmartFuel Backend Active" });
+  res.status(200).json({ status: "ok" });
 });
 
 // ─── Sync Endpoint ──────────────────────────────────────────

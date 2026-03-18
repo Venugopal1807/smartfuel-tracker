@@ -1,5 +1,5 @@
 import axios from "axios";
-import { enqueueAction } from "../db/sqlite";
+import { enqueueSyncEvent } from "../db/sqlite";
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
 
@@ -27,7 +27,7 @@ export const processPayment = async (amount: number, orderId: string) => {
   } catch (err: any) {
     console.error("processPayment error", err?.message || err);
     // offline / retry queue
-    await enqueueAction("PAYMENT_VERIFY_RETRY", {
+    await enqueueSyncEvent("PAYMENT_VERIFY_RETRY", {
       orderId,
       amount,
       message: err?.message || "verify failed",

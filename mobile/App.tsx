@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { View } from "react-native";
 import { initDB } from "./src/db/sqlite";
+import { startSyncWorker } from "./src/services/syncWorker";
 
 import Dashboard from "./src/screens/Dashboard";
 import FuelEntry from "./src/screens/FuelEntry";
@@ -14,7 +15,9 @@ export default function App() {
   const [currentScreen, setCurrentScreen] = useState<ScreenName>("Dashboard");
 
   useEffect(() => {
-    initDB().catch((err) => console.error("Failed to init SQLite DB", err));
+    initDB()
+      .then(() => startSyncWorker())
+      .catch((err) => console.error("Failed to init SQLite DB", err));
   }, []);
 
   const navigate = (screen: ScreenName) => setCurrentScreen(screen);
