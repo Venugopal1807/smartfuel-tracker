@@ -5,6 +5,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { enqueueAction } from "../db/sqlite";
 import axios from "axios";
+import { processPayment } from "../services/paymentService";
 
 const COLORS = {
   primary: "#4F46E5",
@@ -41,6 +42,7 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
   const [otpInput, setOtpInput] = useState("");
   const [authorized, setAuthorized] = useState(false);
   const [finalVolume, setFinalVolume] = useState(0);
+  const [processingPayment, setProcessingPayment] = useState(false);
   const amount = useMemo(() => volume * RATE, [volume]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -93,6 +95,15 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
       } catch (err: any) {
         console.error("Complete order failed", err?.message || err);
       }
+    }
+    try {
+      setProcessingPayment(true);
+      await processPayment(amount, orderId || "demo-order");
+      await generateAndSharePDF();
+    } catch (err: any) {
+      Alert.alert("Payment pending", "Will retry payment verification when online.");
+    } finally {
+      setProcessingPayment(false);
     }
   };
 
@@ -248,11 +259,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
               alignItems: "center",
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>STOP DISPENSING</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ gap: 10 }}>
-            <TouchableOpacity
+          <Text style={{ color: "#fff", fontWeight: "700" }}>STOP DISPENSING</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity
               onPress={onCollectPayment}
               style={{
                 width: "100%",
@@ -279,7 +290,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "700" }}>
-                {sharing ? "Preparing PDF..." : "Generate PDF Receipt & View Earnings"}
+                {processingPayment
+                  ? "Processing Secure Payment..."
+                  : sharing
+                  ? "Preparing PDF..."
+                  : "Generate PDF Receipt & View Earnings"}
               </Text>
             </TouchableOpacity>
           </View>

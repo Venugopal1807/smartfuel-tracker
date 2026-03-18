@@ -13,7 +13,7 @@ import { relations } from "drizzle-orm";
 
 // Enums
 export const kycStatusEnum = ["pending", "verified", "rejected"] as const;
-export const orderStatusEnum = ["pending", "confirmed", "in_transit", "delivered"] as const;
+export const orderStatusEnum = ["pending", "confirmed", "accepted", "in_transit", "delivered"] as const;
 
 // Organizations
 export const organizations = pgTable("organizations", {
