@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from "react";
-import { View, Text, TouchableOpacity } from "react-native";
+import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
+import * as Print from "expo-print";
+import * as Sharing from "expo-sharing";
 import { enqueueAction } from "../db/sqlite";
 
 const COLORS = {
@@ -24,6 +26,7 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
   const pumpId = route.params?.pumpId || "MDU_772";
   const [volume, setVolume] = useState(0);
   const [running, setRunning] = useState(true);
+  const [sharing, setSharing] = useState(false);
   const amount = useMemo(() => volume * RATE, [volume]);
 
   useFocusEffect(
@@ -60,6 +63,53 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
 
   const onCollectPayment = async () => {
     await recordDispense();
+  };
+
+  const generateAndSharePDF = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const now = new Date();
+      const html = `
+        <html>
+          <head>
+            <meta name="viewport" content="initial-scale=1.0, width=device-width" />
+            <style>
+              body { font-family: -apple-system, Roboto, 'Segoe UI', sans-serif; color: #111827; padding: 24px; }
+              .header { background: #4F46E5; color: #fff; padding: 16px; border-radius: 6px; }
+              .title { margin: 0; font-size: 20px; font-weight: 800; }
+              .section { margin-top: 20px; padding: 16px; border: 1px solid #E5E7EB; border-radius: 6px; }
+              .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
+              .label { color: #6B7280; font-size: 13px; }
+              .value { font-weight: 700; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <h1 class="title">SmartFuel B2B Receipt</h1>
+              <div style="margin-top:4px; font-size:14px;">Option C • PDF Receipt</div>
+            </div>
+            <div class="section">
+              <div class="row"><span class="label">Client</span><span class="value">Apollo Hospital</span></div>
+              <div class="row"><span class="label">Pump ID</span><span class="value">${pumpId}</span></div>
+              <div class="row"><span class="label">Date/Time</span><span class="value">${now.toLocaleString()}</span></div>
+              <div class="row"><span class="label">Volume Dispensed</span><span class="value">${volume.toFixed(2)} L</span></div>
+              <div class="row"><span class="label">Rate</span><span class="value">₹ 90.00 / L</span></div>
+              <div class="row"><span class="label">Total Amount</span><span class="value">₹ ${amount.toFixed(2)}</span></div>
+            </div>
+            <p style="margin-top:16px; color:#6B7280; font-size:12px;">Generated offline by SmartFuel. Sync to HQ when online.</p>
+          </body>
+        </html>
+      `;
+
+      const { uri } = await Print.printToFileAsync({ html });
+      await Sharing.shareAsync(uri);
+    } catch (err: any) {
+      console.error("PDF share error", err?.message || err);
+      Alert.alert("Share failed", "Could not generate or share the receipt.");
+    } finally {
+      setSharing(false);
+    }
   };
 
   return (
@@ -165,7 +215,8 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => {}}
+              onPress={generateAndSharePDF}
+              disabled={sharing}
               style={{
                 width: "100%",
                 borderWidth: 1,
@@ -173,10 +224,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
                 paddingVertical: 14,
                 borderRadius: 4,
                 alignItems: "center",
+                opacity: sharing ? 0.6 : 1,
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "700" }}>
-                Generate PDF Receipt & View Earnings
+                {sharing ? "Preparing PDF..." : "Generate PDF Receipt & View Earnings"}
               </Text>
             </TouchableOpacity>
           </View>
