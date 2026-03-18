@@ -1,100 +1,111 @@
 import {
   pgTable,
+  uuid,
   text,
   timestamp,
+  numeric,
+  boolean,
   integer,
-  decimal,
-  uuid,
   jsonb,
+  serial,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
-// ─── Users Table ─────────────────────────────────────────────
-export const users = pgTable("users", {
+// Enums
+export const kycStatusEnum = ["pending", "verified", "rejected"] as const;
+export const orderStatusEnum = ["pending", "confirmed", "in_transit", "delivered"] as const;
+
+// Organizations
+export const organizations = pgTable("organizations", {
   id: uuid("id").primaryKey().defaultRandom(),
-  phone: text("phone").notNull().unique(),
-  name: text("name").notNull(),
-  pinHash: text("pin_hash").notNull(),
-  role: text("role").notNull().default("DRIVER"),
-  createdAt: timestamp("created_at").defaultNow(),
+  businessName: text("business_name").notNull(),
+  kycStatus: text("kyc_status", { enum: kycStatusEnum }).notNull().default("pending"),
 });
 
-// ─── Pumps Table ─────────────────────────────────────────────
+// Pumps
 export const pumps = pgTable("pumps", {
   id: text("id").primaryKey(),
   location: text("location"),
   status: text("status").notNull().default("ACTIVE"),
 });
 
-// ─── Vehicles Table ──────────────────────────────────────────
+// Drivers
+export const drivers = pgTable("drivers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  phone: text("phone").notNull().unique(),
+  name: text("name").notNull(),
+  pinHash: text("pin_hash").notNull(),
+  vehicleNumber: text("vehicle_number"),
+  pumpId: text("pump_id").references(() => pumps.id),
+});
+
+// Vehicles
 export const vehicles = pgTable("vehicles", {
   id: uuid("id").primaryKey().defaultRandom(),
   registrationNumber: text("registration_number").notNull(),
-  model: text("model"),
-  petrolPumpId: text("petrol_pump_id").references(() => pumps.id),
+  capacity: numeric("capacity"),
+  currentFuelLevel: numeric("current_fuel_level"),
+  pumpId: text("pump_id").references(() => pumps.id),
   status: text("status").notNull().default("AVAILABLE"),
 });
 
-// ─── Orders Table ─────────────────────────────────────────────
+// Organization Addresses (support org_address_id FK)
+export const orgAddresses = pgTable("org_addresses", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orgId: uuid("org_id").references(() => organizations.id),
+  address: text("address"),
+  area: text("area"),
+  city: text("city"),
+  state: text("state"),
+  lat: numeric("lat", { precision: 10, scale: 7 }),
+  lng: numeric("lng", { precision: 10, scale: 7 }),
+});
+
+// Orders
 export const orders = pgTable("orders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  amount: decimal("amount", { precision: 12, scale: 2 }),
-  status: text("status").notNull().default("PENDING"), // PENDING | ACCEPTED | EN_ROUTE | DELIVERED
-  expectedVolume: decimal("expected_volume", { precision: 10, scale: 2 }),
+  orderNumber: serial("order_number"),
+  orgId: uuid("org_id").references(() => organizations.id),
+  orgAddressId: uuid("org_address_id").references(() => orgAddresses.id),
+  driverId: uuid("driver_id").references(() => drivers.id),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+  pumpId: text("pump_id").references(() => pumps.id),
+  status: text("status", { enum: orderStatusEnum }).notNull().default("pending"),
+  expectedVolume: numeric("expected_volume", { precision: 10, scale: 2 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }),
   customerName: text("customer_name"),
   customerPhone: text("customer_phone"),
   customerAddress: text("customer_address"),
   customerArea: text("customer_area"),
-  customerLat: decimal("customer_lat", { precision: 10, scale: 7 }),
-  customerLng: decimal("customer_lng", { precision: 10, scale: 7 }),
-  driverId: uuid("driver_id").references(() => users.id),
-  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
-  pumpId: text("pump_id").references(() => pumps.id),
+  securityOrderOtp: text("order_otp"),
+  securityCloseOtp: text("close_otp"),
+  securityBypassOtp: text("bypass_otp"),
+  measurementPresetType: text("preset_type"),
+  measurementQuantity: numeric("quantity", { precision: 10, scale: 2 }),
+  measurementFinalVolume: numeric("final_volume_dispersed", { precision: 10, scale: 2 }),
   scheduledDate: timestamp("scheduled_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// ─── Fuel Logs Table ─────────────────────────────────────────
-// The mobileOfflineId is the critical field for offline-first sync.
-// Each mobile device generates a UUID locally when a fuel log is created
-// offline. This guarantees idempotent syncs — if the same log is
-// pushed twice, the unique constraint on mobileOfflineId prevents duplicates.
-export const fuelLogs = pgTable("fuel_logs", {
-  id: integer("id").primaryKey().generatedAlwaysAsIdentity(),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id),
-  orderId: uuid("order_id").references(() => orders.id),
-  mobileOfflineId: text("mobile_offline_id").notNull().unique(),
-  volumeDispensed: decimal("volume_dispensed", {
-    precision: 10,
-    scale: 2,
-  }).notNull(),
-  locationLat: decimal("location_lat", { precision: 10, scale: 7 }),
-  locationLng: decimal("location_lng", { precision: 10, scale: 7 }),
-  syncStatus: text("sync_status").notNull().default("completed"),
-  razorpayOrderId: text("razorpay_order_id"),
-  paymentStatus: text("payment_status").notNull().default("PENDING"),
-  dispensedAt: timestamp("dispensed_at").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
-
-// ─── Transactions Table ──────────────────────────────────────
+// Transactions
 export const transactions = pgTable("transactions", {
   id: uuid("id").primaryKey().defaultRandom(),
-  orderId: uuid("order_id")
-    .notNull()
-    .references(() => orders.id),
-  pumpId: text("pump_id")
-    .notNull()
-    .references(() => pumps.id),
-  volumeDispensed: decimal("volume_dispensed", { precision: 10, scale: 2 }).notNull(),
-  amount: decimal("amount", { precision: 12, scale: 2 }).notNull(),
+  orderId: uuid("order_id").references(() => orders.id),
+  pumpId: text("pump_id").references(() => pumps.id),
+  volumeDispensed: numeric("volume_dispensed", { precision: 10, scale: 2 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }),
   razorpayOrderId: text("razorpay_order_id"),
   status: text("status").notNull().default("PENDING"),
 });
 
-// ─── Sync Events Table ───────────────────────────────────────
+// MDU Controllers
+export const mduControllers = pgTable("mdu_controllers", {
+  mduCode: text("mdu_code").primaryKey(),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+  isActive: boolean("is_active").notNull().default(true),
+});
+
+// Sync Events
 export const syncEvents = pgTable("sync_events", {
   id: uuid("id").primaryKey().defaultRandom(),
   idempotencyKey: uuid("idempotency_key").notNull().unique(),
@@ -102,22 +113,28 @@ export const syncEvents = pgTable("sync_events", {
   payload: jsonb("payload").notNull(),
 });
 
-// ─── Relations ───────────────────────────────────────────────
-export const usersRelations = relations(users, ({ many }) => ({
+// Relations
+export const organizationsRelations = relations(organizations, ({ many }) => ({
   orders: many(orders),
-  fuelLogs: many(fuelLogs),
+  addresses: many(orgAddresses),
+}));
+
+export const driversRelations = relations(drivers, ({ one }) => ({
+  pump: one(pumps, { fields: [drivers.pumpId], references: [pumps.id] }),
+}));
+
+export const vehiclesRelations = relations(vehicles, ({ one, many }) => ({
+  pump: one(pumps, { fields: [vehicles.pumpId], references: [pumps.id] }),
+  orders: many(orders),
 }));
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
-  driver: one(users, { fields: [orders.driverId], references: [users.id] }),
+  org: one(organizations, { fields: [orders.orgId], references: [organizations.id] }),
+  orgAddress: one(orgAddresses, { fields: [orders.orgAddressId], references: [orgAddresses.id] }),
+  driver: one(drivers, { fields: [orders.driverId], references: [drivers.id] }),
   vehicle: one(vehicles, { fields: [orders.vehicleId], references: [vehicles.id] }),
-  logs: many(fuelLogs),
+  pump: one(pumps, { fields: [orders.pumpId], references: [pumps.id] }),
   transactions: many(transactions),
-}));
-
-export const fuelLogsRelations = relations(fuelLogs, ({ one }) => ({
-  user: one(users, { fields: [fuelLogs.userId], references: [users.id] }),
-  order: one(orders, { fields: [fuelLogs.orderId], references: [orders.id] }),
 }));
 
 export const transactionsRelations = relations(transactions, ({ one }) => ({
@@ -125,7 +142,6 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
   pump: one(pumps, { fields: [transactions.pumpId], references: [pumps.id] }),
 }));
 
-export const vehiclesRelations = relations(vehicles, ({ one, many }) => ({
-  pump: one(pumps, { fields: [vehicles.petrolPumpId], references: [pumps.id] }),
-  orders: many(orders),
+export const mduControllersRelations = relations(mduControllers, ({ one }) => ({
+  vehicle: one(vehicles, { fields: [mduControllers.vehicleId], references: [vehicles.id] }),
 }));

@@ -1,10 +1,13 @@
 import React, { useState } from "react";
-import { View, Text, TextInput, Alert, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, ActivityIndicator, Alert, TouchableOpacity } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
 
-const SignupScreen: React.FC<{ onSuccess?: (token: string) => void }> = ({ onSuccess }) => {
+type Props = { onSuccess?: () => void; onNavigateLogin?: () => void };
+
+const SignupScreen: React.FC<Props> = ({ onSuccess, onNavigateLogin }) => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
@@ -19,65 +22,69 @@ const SignupScreen: React.FC<{ onSuccess?: (token: string) => void }> = ({ onSuc
       setLoading(true);
       const res = await axios.post(`${API_URL}/api/auth/signup`, { name, phone, pin });
       if (res.data?.token) {
-        onSuccess?.(res.data.token);
-        Alert.alert("Success", "Account created");
+        await AsyncStorage.setItem("auth_token", res.data.token);
+        onSuccess?.();
       } else {
-        Alert.alert("Error", "Signup failed");
+        Alert.alert("Signup failed", "No token returned.");
       }
     } catch (err: any) {
       const msg = err.response?.data?.message || "Signup failed";
-      Alert.alert("Error", msg);
+      Alert.alert("Signup failed", msg);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <View style={{ flex: 1, padding: 24, backgroundColor: "#fff" }}>
-      <Text style={{ fontSize: 24, fontWeight: "800", marginBottom: 16 }}>Create Account</Text>
+    <View style={{ flex: 1, backgroundColor: "#fff", padding: 24 }}>
+      <Text style={{ fontSize: 24, fontWeight: "800", marginBottom: 12 }}>Create account</Text>
+
       <TextInput
         placeholder="Name"
         value={name}
         onChangeText={setName}
         style={styles.input}
-        autoCapitalize="words"
       />
       <TextInput
         placeholder="Phone Number"
+        keyboardType="phone-pad"
         value={phone}
         onChangeText={setPhone}
-        keyboardType="phone-pad"
         style={styles.input}
       />
       <TextInput
         placeholder="4-digit PIN"
-        value={pin}
-        onChangeText={(t) => setPin(t.slice(0, 4))}
         keyboardType="number-pad"
         secureTextEntry
+        value={pin}
+        onChangeText={(t) => setPin(t.slice(0, 4))}
         style={styles.input}
       />
-      <View style={{ marginTop: 16 }}>
-        <Text
-          onPress={submit}
-          style={{
-            backgroundColor: "#4F46E5",
-            color: "#fff",
-            textAlign: "center",
-            paddingVertical: 14,
-            borderRadius: 4,
-            fontWeight: "700",
-            fontSize: 16,
-          }}
-        >
-          {loading ? "Signing up..." : "Sign Up"}
-        </Text>
-      </View>
+
+      <TouchableOpacity
+        onPress={submit}
+        disabled={loading}
+        style={{
+          backgroundColor: "#4F46E5",
+          paddingVertical: 14,
+          borderRadius: 4,
+          alignItems: "center",
+          marginTop: 8,
+          opacity: loading ? 0.7 : 1,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "700" }}>{loading ? "Signing up..." : "Sign Up"}</Text>
+      </TouchableOpacity>
+
       {loading ? (
         <View style={{ marginTop: 12 }}>
           <ActivityIndicator color="#4F46E5" />
         </View>
       ) : null}
+
+      <TouchableOpacity onPress={onNavigateLogin} style={{ marginTop: 16 }}>
+        <Text style={{ color: "#4F46E5", textAlign: "center" }}>Already have an account? Log in</Text>
+      </TouchableOpacity>
     </View>
   );
 };
