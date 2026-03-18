@@ -2,8 +2,9 @@ import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { db } from "../db";
-import { drivers } from "../db/schema";
+import { drivers, bankDocuments } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { authenticateToken } from "../middleware/auth";
 
 const router = express.Router();
 
@@ -67,3 +68,79 @@ router.post("/login", async (req, res) => {
 });
 
 export default router;
+
+// ─── Profile Routes ──────────────────────────────────────────
+router.get("/profile", authenticateToken, async (req: any, res) => {
+  try {
+    const driverId = req.user?.sub;
+    if (!driverId) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    const [profile] = await db
+      .select({
+        id: drivers.id,
+        name: drivers.name,
+        phone: drivers.phone,
+        vehicleNumber: drivers.vehicleNumber,
+        bankName: bankDocuments.bankName,
+        accountNumber: bankDocuments.accountNumber,
+        ifscCode: bankDocuments.ifscCode,
+      })
+      .from(drivers)
+      .leftJoin(bankDocuments, eq(drivers.id, bankDocuments.driverId))
+      .where(eq(drivers.id, driverId))
+      .limit(1);
+
+    if (!profile) {
+      res.status(404).json({ success: false, message: "Profile not found" });
+      return;
+    }
+    res.json({ success: true, data: profile });
+  } catch (err: any) {
+    console.error("Profile fetch error", err?.message || err);
+    res.status(500).json({ success: false, message: "Failed to fetch profile" });
+  }
+});
+
+router.patch("/profile", authenticateToken, async (req: any, res) => {
+  try {
+    const driverId = req.user?.sub;
+    if (!driverId) {
+      res.status(401).json({ success: false, message: "Unauthorized" });
+      return;
+    }
+    const { vehicle_number, bank_name, account_number, ifsc_code } = req.body || {};
+
+    if (vehicle_number) {
+      await db.update(drivers).set({ vehicleNumber: vehicle_number }).where(eq(drivers.id, driverId));
+    }
+
+    if (bank_name || account_number || ifsc_code) {
+      // Upsert bank_documents
+      const existing = await db.select().from(bankDocuments).where(eq(bankDocuments.driverId, driverId)).limit(1);
+      if (existing.length) {
+        await db
+          .update(bankDocuments)
+          .set({
+            bankName: bank_name ?? existing[0].bankName,
+            accountNumber: account_number ?? existing[0].accountNumber,
+            ifscCode: ifsc_code ?? existing[0].ifscCode,
+          })
+          .where(eq(bankDocuments.driverId, driverId));
+      } else {
+        await db.insert(bankDocuments).values({
+          driverId,
+          bankName: bank_name || "",
+          accountNumber: account_number || "",
+          ifscCode: ifsc_code || "",
+        });
+      }
+    }
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error("Profile update error", err?.message || err);
+    res.status(500).json({ success: false, message: "Failed to update profile" });
+  }
+});

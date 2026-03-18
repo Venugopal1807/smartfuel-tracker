@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, Alert, ActivityIndicator } from "react-native";
 import axios from "axios";
 import OrderDetailScreen from "./OrderDetailScreen";
+import { useNavigation } from "@react-navigation/native";
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
 
@@ -24,6 +25,7 @@ const DashboardScreen: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
+  const navigation = useNavigation<any>();
 
   const fetchOrders = async () => {
     try {
@@ -64,6 +66,12 @@ const DashboardScreen: React.FC = () => {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: 12 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 12, marginBottom: 8 }}>
+        <Text style={{ fontSize: 18, fontWeight: "800" }}>Orders</Text>
+        <TouchableOpacity onPress={() => navigation.navigate("Profile")}>
+          <Text style={{ color: "#4F46E5", fontWeight: "700" }}>Profile</Text>
+        </TouchableOpacity>
+      </View>
       <View style={{ flexDirection: "row", marginHorizontal: 12, marginBottom: 12 }}>
         {TABS.map((t) => {
           const active = t === tab;
