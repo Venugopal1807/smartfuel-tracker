@@ -26,15 +26,31 @@ export const pumps = pgTable("pumps", {
   status: text("status").notNull().default("ACTIVE"),
 });
 
+// ─── Vehicles Table ──────────────────────────────────────────
+export const vehicles = pgTable("vehicles", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  registrationNumber: text("registration_number").notNull(),
+  model: text("model"),
+  petrolPumpId: text("petrol_pump_id").references(() => pumps.id),
+  status: text("status").notNull().default("AVAILABLE"),
+});
+
 // ─── Orders Table ─────────────────────────────────────────────
 export const orders = pgTable("orders", {
   id: uuid("id").primaryKey().defaultRandom(),
-  driverId: uuid("driver_id")
-    .notNull()
-    .references(() => users.id),
-  clientName: text("client_name").notNull(),
+  amount: decimal("amount", { precision: 12, scale: 2 }),
   status: text("status").notNull().default("PENDING"), // PENDING | ACCEPTED | EN_ROUTE | DELIVERED
-  expectedVolume: decimal("expected_volume", { precision: 10, scale: 2 }).notNull(),
+  expectedVolume: decimal("expected_volume", { precision: 10, scale: 2 }),
+  customerName: text("customer_name"),
+  customerPhone: text("customer_phone"),
+  customerAddress: text("customer_address"),
+  customerArea: text("customer_area"),
+  customerLat: decimal("customer_lat", { precision: 10, scale: 7 }),
+  customerLng: decimal("customer_lng", { precision: 10, scale: 7 }),
+  driverId: uuid("driver_id").references(() => users.id),
+  vehicleId: uuid("vehicle_id").references(() => vehicles.id),
+  pumpId: text("pump_id").references(() => pumps.id),
+  scheduledDate: timestamp("scheduled_date"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -94,6 +110,7 @@ export const usersRelations = relations(users, ({ many }) => ({
 
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   driver: one(users, { fields: [orders.driverId], references: [users.id] }),
+  vehicle: one(vehicles, { fields: [orders.vehicleId], references: [vehicles.id] }),
   logs: many(fuelLogs),
   transactions: many(transactions),
 }));
@@ -106,4 +123,9 @@ export const fuelLogsRelations = relations(fuelLogs, ({ one }) => ({
 export const transactionsRelations = relations(transactions, ({ one }) => ({
   order: one(orders, { fields: [transactions.orderId], references: [orders.id] }),
   pump: one(pumps, { fields: [transactions.pumpId], references: [pumps.id] }),
+}));
+
+export const vehiclesRelations = relations(vehicles, ({ one, many }) => ({
+  pump: one(pumps, { fields: [vehicles.petrolPumpId], references: [pumps.id] }),
+  orders: many(orders),
 }));
