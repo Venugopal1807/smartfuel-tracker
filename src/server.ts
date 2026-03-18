@@ -3,6 +3,7 @@ import cors from "cors";
 import * as dotenv from "dotenv";
 import { processSyncBatch } from "./db/logic";
 import type { SyncRequestBody, IncomingFuelLog } from "./types";
+import { authenticateToken } from "./middleware/auth";
 
 dotenv.config();
 
@@ -83,6 +84,13 @@ app.get("/api/stats/:userId", async (req, res) => {
     const userId = parseInt(req.params.userId, 10);
     if (isNaN(userId)) {
       res.status(400).json({ success: false, message: "Invalid userId" });
+      return;
+    }
+
+    // IDOR guard: ensure authenticated user matches requested userId
+    const authUser = (req as any).user;
+    if (!authUser || Number(authUser.sub) !== userId) {
+      res.status(403).json({ success: false, message: "Forbidden" });
       return;
     }
 

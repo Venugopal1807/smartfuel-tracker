@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { View, Text, TouchableOpacity, Alert } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
 import * as Print from "expo-print";
@@ -21,24 +21,35 @@ interface Props {
 const formatVolume = (value: number) => value.toFixed(2).padStart(6, "0");
 const RATE = 90;
 
+const escapeHtml = (val: string) =>
+  val
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
 const DispensingScreen: React.FC<Props> = ({ route }) => {
-  const customer = route.params?.customer || "Apollo Hospital (Generator B)";
-  const pumpId = route.params?.pumpId || "MDU_772";
+  const customer = escapeHtml(route.params?.customer || "Apollo Hospital (Generator B)");
+  const pumpId = escapeHtml(route.params?.pumpId || "MDU_772");
   const [volume, setVolume] = useState(0);
   const [running, setRunning] = useState(true);
   const [sharing, setSharing] = useState(false);
   const amount = useMemo(() => volume * RATE, [volume]);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useFocusEffect(
     React.useCallback(() => {
-      let timer: ReturnType<typeof setInterval> | null = null;
       if (running) {
-        timer = setInterval(() => {
+        intervalRef.current = setInterval(() => {
           setVolume((v) => Number((v + 0.28).toFixed(2)));
         }, 100);
       }
       return () => {
-        if (timer) clearInterval(timer);
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
       };
     }, [running])
   );
@@ -58,6 +69,10 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
 
   const onStop = async () => {
     setRunning(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
     await recordDispense();
   };
 

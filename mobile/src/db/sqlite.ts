@@ -23,6 +23,11 @@ CREATE TABLE IF NOT EXISTS offline_queue (
 
 const db = SQLite.openDatabase(DB_NAME);
 
+const applyPragmas = async () => {
+  await exec("PRAGMA journal_mode=WAL;");
+  await exec("PRAGMA busy_timeout=3000;"); // 3s wait on lock
+};
+
 const exec = (sql: string, params: any[] = []): Promise<SQLite.SQLResultSet> =>
   new Promise((resolve, reject) => {
     db.transaction(
@@ -57,17 +62,28 @@ const genUuid = () => {
 };
 
 export const initDB = async () => {
+  await applyPragmas();
   await exec(TABLE_SQL);
 };
 
 export const enqueueAction = async (type: string, payload: unknown) => {
+  if (typeof type !== "string" || !type.trim()) {
+    throw new Error("Invalid queue type");
+  }
   const uuid = genUuid();
   const createdAt = new Date().toISOString();
-  const payloadStr = JSON.stringify(payload ?? {});
-  await exec(
-    `INSERT INTO offline_queue (uuid, type, payload, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)`,
-    [uuid, type, payloadStr, createdAt]
-  );
+  let payloadStr = "{}";
+  try {
+    payloadStr = JSON.stringify(payload ?? {});
+  } catch {
+    payloadStr = "{}";
+  }
+  await exec(`INSERT INTO offline_queue (uuid, type, payload, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)`, [
+    uuid,
+    type.trim(),
+    payloadStr,
+    createdAt,
+  ]);
   return uuid;
 };
 
