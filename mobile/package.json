@@ -20,6 +20,7 @@
     "nativewind": "^4.2.3",
     "react": "19.2.0",
     "react-native": "0.83.2",
+    "react-native-maps": "1.27.2",
     "react-native-reanimated": "4.2.1",
     "react-native-safe-area-context": "~5.6.2",
     "react-native-svg": "15.15.3",
