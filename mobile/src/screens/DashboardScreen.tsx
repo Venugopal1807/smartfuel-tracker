@@ -11,13 +11,16 @@ type Order = {
   customer_area?: string;
   status: string;
   expected_volume?: string;
-  vehicle_id?: string;
+  vehicle_registration?: string;
+  customer_lat?: number;
+  customer_lng?: number;
+  scheduled_date?: string;
 };
 
-const TABS = ["Available Orders", "In Progress"] as const;
+const TABS = ["Available", "In Progress"] as const;
 
 const DashboardScreen: React.FC = () => {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Available Orders");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Available");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
@@ -26,7 +29,7 @@ const DashboardScreen: React.FC = () => {
     try {
       setLoading(true);
       const res = await axios.get(`${API_URL}/api/orders`, {
-        params: tab === "Available Orders" ? { status: "PENDING" } : { status: "ACCEPTED" },
+        params: tab === "Available" ? { status: "pending" } : { status: "accepted" },
       });
       setOrders(res.data?.data || []);
     } catch (err: any) {
@@ -44,8 +47,7 @@ const DashboardScreen: React.FC = () => {
     try {
       setLoading(true);
       await axios.patch(`${API_URL}/api/orders/${orderId}/accept`, {
-        driverId: "driver-placeholder",
-        vehicleId: "vehicle-placeholder",
+        driverId: "driver-demo",
       });
       Alert.alert("Accepted", "Order moved to In Progress");
       fetchOrders();
@@ -101,10 +103,12 @@ const DashboardScreen: React.FC = () => {
                 padding: 12,
               }}
             >
-              <Text style={{ fontWeight: "800", fontSize: 16 }}>{item.customer_name || "Customer"}</Text>
-              <Text style={{ color: "#6B7280", marginVertical: 4 }}>{item.customer_area || "Area"}</Text>
+              <Text style={{ fontWeight: "800", fontSize: 16 }}>{item.customer_name || "Client"}</Text>
+              <Text style={{ color: "#6B7280", marginVertical: 4 }}>
+                Volume: {item.expected_volume || "N/A"} • Vehicle: TS-09-EA-1234
+              </Text>
               <Text style={{ color: "#6B7280" }}>Status: {item.status}</Text>
-              {tab === "Available Orders" ? (
+              {tab === "Available" ? (
                 <TouchableOpacity
                   onPress={() => acceptOrder(item.id)}
                   style={{
@@ -115,7 +119,7 @@ const DashboardScreen: React.FC = () => {
                     alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700" }}>Accept</Text>
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>Accept Order</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -128,7 +132,7 @@ const DashboardScreen: React.FC = () => {
                     alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700" }}>Open</Text>
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>View Details</Text>
                 </TouchableOpacity>
               )}
             </View>
