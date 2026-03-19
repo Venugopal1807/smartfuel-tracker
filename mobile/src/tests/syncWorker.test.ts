@@ -55,5 +55,6 @@ describe("syncWorker", () => {
 
     expect(mockedAxios.post).toHaveBeenCalledTimes(1);
     expect(deleteSyncEvent).not.toHaveBeenCalled();
+    expect(mockedAxios.patch).not.toHaveBeenCalled();
   });
 });
