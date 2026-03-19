@@ -38,7 +38,7 @@ const applyPragmas = async () => {
 
 const run = async (sql: string, params: unknown[] = []) => {
   try {
-    await db.runAsync(sql, params);
+    await db.runAsync(sql, params as SQLite.SQLiteBindValue[]);
   } catch (error) {
     console.error("SQLite run error:", error);
     throw error;
@@ -47,7 +47,7 @@ const run = async (sql: string, params: unknown[] = []) => {
 
 const getAll = async <T = any>(sql: string, params: unknown[] = []): Promise<T[]> => {
   try {
-    return await db.getAllAsync<T>(sql, params);
+    return await db.getAllAsync<T>(sql, params as SQLite.SQLiteBindValue[]);
   } catch (error) {
     console.error("SQLite query error:", error);
     throw error;

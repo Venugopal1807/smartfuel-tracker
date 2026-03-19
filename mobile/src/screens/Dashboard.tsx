@@ -76,7 +76,7 @@ export default function Dashboard({ onNavigate }: Props) {
       // Try to get real location, fallback to 0,0 if denied for speed
       let lat = 0.0;
       let lng = 0.0;
-      const { status } = await Location.foregroundPermissionsAsync();
+      const { status } = await Location.getForegroundPermissionsAsync();
       if (status === 'granted') {
         const loc = await Location.getLastKnownPositionAsync();
         lat = loc?.coords.latitude || 0;

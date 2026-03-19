@@ -8,6 +8,9 @@
 - **Expo SQLite API drift:** Migrated `mobile/src/db/sqlite.ts` to `openDatabaseSync` with `execAsync/runAsync` and typed helpers to align with SDK 50+.
 - **Missing navigation deps:** Installed `@react-navigation/native` and `@react-navigation/native-stack` to satisfy RN navigation imports.
 - **Test fetch mocks:** Cast `global.fetch` to `jest.Mock`/`typeof fetch` to silence implicit-any errors in test environment.
+- **SQLite binding types:** Cast run/getAll params to `SQLiteBindValue[]` to satisfy strict Expo SQLite overloads.
+- **Location API rename:** Updated `foregroundPermissionsAsync` to `getForegroundPermissionsAsync` per Expo SDK 50.
+- **Axios mocks typing:** Cast `axios.post/patch` to `jest.Mock` in tests to avoid `never` type errors.
 
 ## Outcome
 Pipelines should now isolate backend/mobile responsibilities, React Native components use correct styling primitives, and mobile test suite compiles cleanly.
