@@ -10,6 +10,7 @@ jest.mock("../db/sqlite", () => ({
 // Mock axios
 jest.mock("axios");
 
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 const { getPendingSyncEvents, deleteSyncEvent } = jest.requireMock("../db/sqlite") as any;
 const { syncPendingEvents } = require("../services/syncWorker");
 
@@ -22,8 +23,8 @@ describe("syncWorker", () => {
 
     (getPendingSyncEvents as any).mockResolvedValue(mockData);
     (deleteSyncEvent as any).mockResolvedValue(undefined);
-    (axios.post as any).mockResolvedValue({ data: { pgOrderId: "order_mock" } });
-    (axios.patch as any).mockResolvedValue({ data: {} });
+    jest.mocked(mockedAxios.post).mockResolvedValue({ data: { pgOrderId: "order_mock" } } as any);
+    jest.mocked(mockedAxios.patch).mockResolvedValue({ data: {} } as any);
 
     // @ts-ignore - Manual bypass for CI green light
     global.fetch = jest.fn(() => 
@@ -42,5 +43,17 @@ describe("syncWorker", () => {
     await syncPendingEvents();
     expect(getPendingSyncEvents).toHaveBeenCalled();
     expect(deleteSyncEvent).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops sync and preserves session data on 401 Unauthorized", async () => {
+    jest.mocked(mockedAxios.post).mockRejectedValueOnce({ response: { status: 401 } } as any);
+    jest.mocked(getPendingSyncEvents).mockResolvedValueOnce([
+      { id: 99, type: "PAYMENT_VERIFY_RETRY", payload: JSON.stringify({ orderId: "o401", amount: 10 }) },
+    ] as any);
+
+    await syncPendingEvents();
+
+    expect(mockedAxios.post).toHaveBeenCalledTimes(1);
+    expect(deleteSyncEvent).not.toHaveBeenCalled();
   });
 });
