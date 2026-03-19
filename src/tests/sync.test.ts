@@ -23,4 +23,12 @@ describe("Sync idempotency", () => {
     expect(first.processed).toBe(true);
     expect(second.processed).toBe(false);
   });
+
+  it("allows different UUIDs to process independently", () => {
+    const process = makeProcessor();
+    const first = process({ uuid: "id-1", payload: {} });
+    const second = process({ uuid: "id-2", payload: {} });
+    expect(first.processed).toBe(true);
+    expect(second.processed).toBe(true);
+  });
 });
