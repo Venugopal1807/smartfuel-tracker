@@ -15,19 +15,30 @@ export const checkConnectivity = async () => {
 const handlePaymentRetry = async (payload: any) => {
   const orderId = payload?.orderId;
   const amount = payload?.amount;
-  if (!orderId || !amount) return;
-
-  const create = await axios.post(`${API_URL}/api/payments/create-order`, { orderId, amount });
-  const pgOrderId = create.data?.pgOrderId;
-  const paymentId = `pay_${Math.random().toString(36).slice(2, 8)}`;
-  await axios.post(`${API_URL}/api/payments/verify`, {
-    pg_order_id: pgOrderId,
-    pg_payment_id: paymentId,
-  });
+  if (!orderId || !amount) return false;
+  try {
+    const create = await axios.post(`${API_URL}/api/payments/create-order`, { orderId, amount });
+    const pgOrderId = create.data?.pgOrderId;
+    const paymentId = `pay_${Math.random().toString(36).slice(2, 8)}`;
+    await axios.post(`${API_URL}/api/payments/verify`, {
+      pg_order_id: pgOrderId,
+      pg_payment_id: paymentId,
+    });
+    return true;
+  } catch (err: any) {
+    console.error("Payment retry failed", err?.message || err);
+    return false;
+  }
 };
 
 const handleProfileSync = async (payload: any) => {
-  await axios.patch(`${API_URL}/api/auth/profile`, payload);
+  try {
+    await axios.patch(`${API_URL}/api/auth/profile`, payload);
+    return true;
+  } catch (err: any) {
+    console.error("Profile sync failed", err?.message || err);
+    return false;
+  }
 };
 
 export const syncPendingEvents = async () => {
@@ -40,10 +51,10 @@ export const syncPendingEvents = async () => {
       const payload = evt.payload ? JSON.parse(evt.payload) : {};
       switch (evt.type) {
         case "PAYMENT_VERIFY_RETRY":
-          await handlePaymentRetry(payload);
+          if (!(await handlePaymentRetry(payload))) continue;
           break;
         case "PROFILE_UPDATE_SYNC":
-          await handleProfileSync(payload);
+          if (!(await handleProfileSync(payload))) continue;
           break;
         default:
           // Unhandled types can be requeued or logged
