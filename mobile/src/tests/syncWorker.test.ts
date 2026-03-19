@@ -1,16 +1,19 @@
 import { jest } from "@jest/globals";
+import axios from "axios";
 
 jest.mock("../db/sqlite", () => ({
   getPendingSyncEvents: jest.fn(),
   deleteSyncEvent: jest.fn(),
 }));
 
-jest.mock("axios", () => ({
-  post: jest.fn().mockResolvedValue({ data: { pgOrderId: "order_mock" } }),
-  patch: jest.fn().mockResolvedValue({}),
-}));
+jest.mock("axios");
 
-const { getPendingSyncEvents, deleteSyncEvent } = jest.requireMock("../db/sqlite");
+const { getPendingSyncEvents, deleteSyncEvent } = jest.requireMock("../db/sqlite") as {
+  getPendingSyncEvents: jest.Mock;
+  deleteSyncEvent: jest.Mock;
+};
+
+const mockedAxios = axios as jest.Mocked<typeof axios>;
 
 // Import after mocks so the worker uses mocked dependencies
 // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -23,6 +26,8 @@ describe("syncWorker", () => {
       { id: 2, type: "PROFILE_UPDATE_SYNC", payload: JSON.stringify({ name: "Driver" }) },
     ]);
     (deleteSyncEvent as jest.Mock).mockResolvedValue(undefined);
+    mockedAxios.post.mockResolvedValue({ data: { pgOrderId: "order_mock" } } as any);
+    mockedAxios.patch.mockResolvedValue({} as any);
     global.fetch = jest.fn().mockResolvedValue({ ok: true } as any);
   });
 
