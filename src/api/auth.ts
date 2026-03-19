@@ -18,8 +18,12 @@ if (!JWT_SECRET) {
 router.post("/signup", async (req, res) => {
   try {
     const { phone, name, pin, vehicle_number, pump_id } = req.body || {};
-    if (!phone || !name || !pin) {
-      res.status(400).json({ success: false, message: "phone, name, and pin are required" });
+    if (!phone || !name || !pin || typeof phone !== "string" || typeof name !== "string" || typeof pin !== "string") {
+      res.status(400).json({ success: false, message: "phone, name, and pin (string) are required" });
+      return;
+    }
+    if (pin.length !== 4) {
+      res.status(400).json({ success: false, message: "PIN must be 4 digits" });
       return;
     }
     const existing = await db.select().from(drivers).where(eq(drivers.phone, phone)).limit(1);
@@ -46,8 +50,12 @@ router.post("/signup", async (req, res) => {
 router.post("/login", async (req, res) => {
   try {
     const { phone, pin } = req.body || {};
-    if (!phone || !pin) {
+    if (!phone || !pin || typeof phone !== "string" || typeof pin !== "string") {
       res.status(400).json({ success: false, message: "phone and pin are required" });
+      return;
+    }
+    if (pin.length !== 4) {
+      res.status(400).json({ success: false, message: "PIN must be 4 digits" });
       return;
     }
     const found = await db.select().from(drivers).where(eq(drivers.phone, phone)).limit(1);
