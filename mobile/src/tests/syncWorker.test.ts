@@ -28,7 +28,7 @@ describe("syncWorker", () => {
     (deleteSyncEvent as jest.Mock).mockResolvedValue(undefined);
     mockedAxios.post.mockResolvedValue({ data: { pgOrderId: "order_mock" } } as any);
     mockedAxios.patch.mockResolvedValue({} as any);
-    global.fetch = jest.fn().mockResolvedValue({ ok: true } as any);
+    global.fetch = jest.fn().mockResolvedValue({ ok: true } as any) as unknown as typeof fetch;
   });
 
   afterEach(() => {

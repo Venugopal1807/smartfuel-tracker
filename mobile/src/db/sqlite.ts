@@ -30,34 +30,29 @@ CREATE TABLE IF NOT EXISTS sync_events (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );`;
 
-const db = SQLite.openDatabase(DB_NAME);
+const db = SQLite.openDatabaseSync(DB_NAME);
 
 const applyPragmas = async () => {
-  await exec("PRAGMA journal_mode=WAL;");
-  await exec("PRAGMA busy_timeout=3000;"); // 3s wait on lock
+  await db.execAsync("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;");
 };
 
-const exec = (sql: string, params: any[] = []): Promise<SQLite.SQLResultSet> =>
-  new Promise((resolve, reject) => {
-    db.transaction(
-      (tx) => {
-        tx.executeSql(
-          sql,
-          params,
-          (_tx, result) => resolve(result),
-          (_tx, error) => {
-            console.error("SQLite error:", error);
-            reject(error);
-            return false;
-          }
-        );
-      },
-      (error) => {
-        console.error("SQLite txn error:", error);
-        reject(error);
-      }
-    );
-  });
+const run = async (sql: string, params: unknown[] = []) => {
+  try {
+    await db.runAsync(sql, params);
+  } catch (error) {
+    console.error("SQLite run error:", error);
+    throw error;
+  }
+};
+
+const getAll = async <T = any>(sql: string, params: unknown[] = []): Promise<T[]> => {
+  try {
+    return await db.getAllAsync<T>(sql, params);
+  } catch (error) {
+    console.error("SQLite query error:", error);
+    throw error;
+  }
+};
 
 const genUuid = () => {
   if (typeof Crypto.randomUUID === "function") return Crypto.randomUUID();
@@ -72,8 +67,8 @@ const genUuid = () => {
 
 export const initDB = async () => {
   await applyPragmas();
-  await exec(TABLE_SQL);
-  await exec(SYNC_EVENTS_SQL);
+  await db.execAsync(TABLE_SQL);
+  await db.execAsync(SYNC_EVENTS_SQL);
 };
 
 export const enqueueAction = async (type: string, payload: unknown) => {
@@ -88,7 +83,7 @@ export const enqueueAction = async (type: string, payload: unknown) => {
   } catch {
     payloadStr = "{}";
   }
-  await exec(`INSERT INTO offline_queue (uuid, type, payload, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)`, [
+  await run(`INSERT INTO offline_queue (uuid, type, payload, status, created_at) VALUES (?, ?, ?, 'PENDING', ?)`, [
     uuid,
     type.trim(),
     payloadStr,
@@ -98,17 +93,12 @@ export const enqueueAction = async (type: string, payload: unknown) => {
 };
 
 export const getPendingActions = async (): Promise<QueueRecord[]> => {
-  const res = await exec(`SELECT * FROM offline_queue WHERE status = 'PENDING' ORDER BY created_at ASC`);
-  const rows = res.rows;
-  const out: QueueRecord[] = [];
-  for (let i = 0; i < rows.length; i++) {
-    out.push(rows.item(i) as QueueRecord);
-  }
-  return out;
+  const rows = await getAll<QueueRecord>(`SELECT * FROM offline_queue WHERE status = 'PENDING' ORDER BY created_at ASC`);
+  return rows;
 };
 
 export const markAsSynced = async (uuid: string) => {
-  await exec(`UPDATE offline_queue SET status = 'SYNCED' WHERE uuid = ?`, [uuid]);
+  await run(`UPDATE offline_queue SET status = 'SYNCED' WHERE uuid = ?`, [uuid]);
 };
 
 export const enqueueSyncEvent = async (type: string, payload: unknown) => {
@@ -118,18 +108,15 @@ export const enqueueSyncEvent = async (type: string, payload: unknown) => {
   } catch {
     payloadStr = "{}";
   }
-  await exec(`INSERT INTO sync_events (type, payload, status) VALUES (?, ?, 'PENDING')`, [type, payloadStr]);
+  await run(`INSERT INTO sync_events (type, payload, status) VALUES (?, ?, 'PENDING')`, [type, payloadStr]);
 };
 
 export const getPendingSyncEvents = async () => {
-  const res = await exec(`SELECT * FROM sync_events WHERE status = 'PENDING' ORDER BY created_at ASC`);
-  const out: any[] = [];
-  for (let i = 0; i < res.rows.length; i++) out.push(res.rows.item(i));
-  return out;
+  return await getAll(`SELECT * FROM sync_events WHERE status = 'PENDING' ORDER BY created_at ASC`);
 };
 
 export const deleteSyncEvent = async (id: number) => {
-  await exec(`DELETE FROM sync_events WHERE id = ?`, [id]);
+  await run(`DELETE FROM sync_events WHERE id = ?`, [id]);
 };
 
 export default db;
