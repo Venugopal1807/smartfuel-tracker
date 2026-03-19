@@ -37,5 +37,6 @@ describe("Order pricing", () => {
     const volume = 45.5;
     const total = computePrice(volume, seededRate);
     expect(total).toBeCloseTo(4095);
+    expect(total).toBe(volume * seededRate);
   });
 });
