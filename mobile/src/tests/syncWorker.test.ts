@@ -24,8 +24,8 @@ describe("syncWorker", () => {
       { id: 2, type: "PROFILE_UPDATE_SYNC", payload: JSON.stringify({ name: "Driver" }) },
     ]);
     (deleteSyncEvent as jest.Mock).mockResolvedValue(undefined);
-    (axios.post as jest.Mock).mockResolvedValue({ data: { pgOrderId: "order_mock" } });
-    (axios.patch as jest.Mock).mockResolvedValue({});
+    (axios.post as jest.Mock).mockResolvedValue({ data: { pgOrderId: "order_mock" } } as any);
+    (axios.patch as jest.Mock).mockResolvedValue({} as any);
     global.fetch = jest.fn().mockResolvedValue({ ok: true } as any) as unknown as typeof fetch;
   });
 
