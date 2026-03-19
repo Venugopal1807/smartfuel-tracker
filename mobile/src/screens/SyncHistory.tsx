@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { ArrowLeft, CheckCircle2, Clock } from 'lucide-react-native';
 import { getLogs, FuelLog } from '../database/db';
 
@@ -20,23 +20,22 @@ export default function SyncHistory({ onNavigate }: Props) {
   }, []);
 
   return (
-    <View className="flex-1 bg-gray-50 pt-16 px-6">
+    <View style={styles.container}>
       {/* Header */}
-      <View className="flex-row items-center justify-between mb-8">
-        <TouchableOpacity 
-          className="p-2 bg-white rounded-full shadow-sm border border-gray-100"
-          onPress={() => onNavigate('Dashboard')}
-        >
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={() => onNavigate('Dashboard')}>
           <ArrowLeft size={24} color="#374151" />
         </TouchableOpacity>
-        <Text className="text-xl font-bold text-gray-900">Local Fuel Logs</Text>
-        <View className="w-10" /> {/* Spacer */}
+        <Text style={styles.headerTitle}>Local Fuel Logs</Text>
+        <View style={styles.headerSpacer} /> {/* Spacer */}
       </View>
       
       {logs.length === 0 ? (
-        <View className="flex-1 justify-center items-center opacity-50">
-          <Clock size={48} color="#6b7280" className="mb-4" />
-          <Text className="text-lg font-medium text-gray-500">No logs saved locally yet.</Text>
+        <View style={styles.emptyState}>
+          <View style={styles.emptyIconWrapper}>
+            <Clock size={48} color="#6b7280" />
+          </View>
+          <Text style={styles.emptyText}>No logs saved locally yet.</Text>
         </View>
       ) : (
         <FlatList 
@@ -45,21 +44,21 @@ export default function SyncHistory({ onNavigate }: Props) {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 40 }}
           renderItem={({ item }) => (
-            <View className="bg-white p-5 mb-4 rounded-2xl shadow-sm flex-row justify-between items-center border border-gray-100">
+            <View style={styles.card}>
               <View>
-                <Text className="text-2xl font-black text-gray-900 mb-1">{item.volume.toFixed(2)} L</Text>
-                <Text className="text-xs font-medium text-gray-500">
+                <Text style={styles.volumeText}>{item.volume.toFixed(2)} L</Text>
+                <Text style={styles.timestampText}>
                   {new Date(item.timestamp).toLocaleString()}
                 </Text>
               </View>
               
-              <View className={`px-4 py-2 rounded-full flex-row items-center ${item.synced ? 'bg-green-50 border border-green-200' : 'bg-orange-50 border border-orange-200'}`}>
+              <View style={[styles.badge, item.synced ? styles.badgeSynced : styles.badgePending]}>
                 {item.synced ? (
                   <CheckCircle2 size={16} color="#16a34a" />
                 ) : (
                   <Clock size={16} color="#ea580c" />
                 )}
-                <Text className={`text-sm font-bold ml-2 ${item.synced ? 'text-green-700' : 'text-orange-700'}`}>
+                <Text style={[styles.badgeLabel, item.synced ? styles.badgeLabelSynced : styles.badgeLabelPending]}>
                   {item.synced ? 'Synced' : 'Pending'}
                 </Text>
               </View>
@@ -70,3 +69,96 @@ export default function SyncHistory({ onNavigate }: Props) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+    paddingTop: 64,
+    paddingHorizontal: 24,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 32,
+  },
+  backButton: {
+    padding: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  headerSpacer: {
+    width: 40,
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    opacity: 0.5,
+  },
+  emptyIconWrapper: {
+    marginBottom: 12,
+  },
+  emptyText: {
+    fontSize: 18,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  card: {
+    backgroundColor: '#ffffff',
+    padding: 20,
+    marginBottom: 16,
+    borderRadius: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  volumeText: {
+    fontSize: 22,
+    fontWeight: '900',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  timestampText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#6b7280',
+  },
+  badge: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  badgeSynced: {
+    backgroundColor: '#ecfdf3',
+    borderColor: '#bbf7d0',
+  },
+  badgePending: {
+    backgroundColor: '#fff7ed',
+    borderColor: '#fed7aa',
+  },
+  badgeLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  badgeLabelSynced: {
+    color: '#15803d',
+  },
+  badgeLabelPending: {
+    color: '#c2410c',
+  },
+});
