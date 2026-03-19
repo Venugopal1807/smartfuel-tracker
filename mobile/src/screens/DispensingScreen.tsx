@@ -1,9 +1,11 @@
 import React, { useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, Alert } from "react-native";
+import { View, Text, TouchableOpacity, Alert, TextInput } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
 import { enqueueAction } from "../db/sqlite";
+import axios from "axios";
+import { processPayment } from "../services/paymentService";
+import * as Sharing from "expo-sharing";
+import { generateInvoice } from "../services/pdfService";
 
 const COLORS = {
   primary: "#4F46E5",
@@ -15,7 +17,7 @@ const COLORS = {
 };
 
 interface Props {
-  route: { params?: { customer?: string; pumpId?: string } };
+  route: { params?: { customer?: string; pumpId?: string; orderId?: string; orderOtp?: string } };
 }
 
 const formatVolume = (value: number) => value.toFixed(2).padStart(6, "0");
@@ -32,9 +34,17 @@ const escapeHtml = (val: string) =>
 const DispensingScreen: React.FC<Props> = ({ route }) => {
   const customer = escapeHtml(route.params?.customer || "Apollo Hospital (Generator B)");
   const pumpId = escapeHtml(route.params?.pumpId || "MDU_772");
+  const orderId = route.params?.orderId;
+  const orderOtp = route.params?.orderOtp || "1234";
   const [volume, setVolume] = useState(0);
   const [running, setRunning] = useState(true);
   const [sharing, setSharing] = useState(false);
+  const [otpInput, setOtpInput] = useState("");
+  const [authorized, setAuthorized] = useState(false);
+  const [finalVolume, setFinalVolume] = useState(0);
+  const [processingPayment, setProcessingPayment] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [invoiceUri, setInvoiceUri] = useState<string | null>(null);
   const amount = useMemo(() => volume * RATE, [volume]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -42,7 +52,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
     React.useCallback(() => {
       if (running) {
         intervalRef.current = setInterval(() => {
-          setVolume((v) => Number((v + 0.28).toFixed(2)));
+          setVolume((v) => {
+            const next = Number((v + 0.28).toFixed(2));
+            setFinalVolume(next);
+            return next;
+          });
         }, 100);
       }
       return () => {
@@ -73,55 +87,51 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
       clearInterval(intervalRef.current);
       intervalRef.current = null;
     }
+    setFinalVolume(volume);
     await recordDispense();
+    if (orderId) {
+      try {
+        await axios.patch(`${process.env.API_URL || "http://localhost:3000"}/api/orders/${orderId}/complete`, {
+          final_volume: volume,
+        });
+      } catch (err: any) {
+        console.error("Complete order failed", err?.message || err);
+      }
+    }
+    try {
+      setProcessingPayment(true);
+      await processPayment(amount, orderId || "demo-order");
+      setPaymentSuccess(true);
+      await createAndShareInvoice();
+    } catch (err: any) {
+      Alert.alert("Payment pending", "Will retry payment verification when online.");
+    } finally {
+      setProcessingPayment(false);
+    }
   };
 
   const onCollectPayment = async () => {
     await recordDispense();
   };
 
-  const generateAndSharePDF = async () => {
-    if (sharing) return;
-    setSharing(true);
+  const createAndShareInvoice = async () => {
     try {
-      const now = new Date();
-      const html = `
-        <html>
-          <head>
-            <meta name="viewport" content="initial-scale=1.0, width=device-width" />
-            <style>
-              body { font-family: -apple-system, Roboto, 'Segoe UI', sans-serif; color: #111827; padding: 24px; }
-              .header { background: #4F46E5; color: #fff; padding: 16px; border-radius: 6px; }
-              .title { margin: 0; font-size: 20px; font-weight: 800; }
-              .section { margin-top: 20px; padding: 16px; border: 1px solid #E5E7EB; border-radius: 6px; }
-              .row { display: flex; justify-content: space-between; margin-bottom: 8px; }
-              .label { color: #6B7280; font-size: 13px; }
-              .value { font-weight: 700; }
-            </style>
-          </head>
-          <body>
-            <div class="header">
-              <h1 class="title">SmartFuel B2B Receipt</h1>
-              <div style="margin-top:4px; font-size:14px;">Option C • PDF Receipt</div>
-            </div>
-            <div class="section">
-              <div class="row"><span class="label">Client</span><span class="value">Apollo Hospital</span></div>
-              <div class="row"><span class="label">Pump ID</span><span class="value">${pumpId}</span></div>
-              <div class="row"><span class="label">Date/Time</span><span class="value">${now.toLocaleString()}</span></div>
-              <div class="row"><span class="label">Volume Dispensed</span><span class="value">${volume.toFixed(2)} L</span></div>
-              <div class="row"><span class="label">Rate</span><span class="value">₹ 90.00 / L</span></div>
-              <div class="row"><span class="label">Total Amount</span><span class="value">₹ ${amount.toFixed(2)}</span></div>
-            </div>
-            <p style="margin-top:16px; color:#6B7280; font-size:12px;">Generated offline by SmartFuel. Sync to HQ when online.</p>
-          </body>
-        </html>
-      `;
-
-      const { uri } = await Print.printToFileAsync({ html });
+      setSharing(true);
+      const uri = await generateInvoice({
+        orderNumber: orderId || "demo-order",
+        customerName: customer,
+        area: route.params?.orderOtp || "Area",
+        vehicleReg: pumpId,
+        volume: finalVolume || volume,
+        total: amount,
+        rate: RATE,
+        transactionId: `tx_${Math.random().toString(36).slice(2, 8)}`,
+      });
+      setInvoiceUri(uri);
       await Sharing.shareAsync(uri);
     } catch (err: any) {
-      console.error("PDF share error", err?.message || err);
-      Alert.alert("Share failed", "Could not generate or share the receipt.");
+      console.error("Invoice error", err?.message || err);
+      Alert.alert("Invoice failed", "Could not generate invoice.");
     } finally {
       setSharing(false);
     }
@@ -151,6 +161,22 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
       </View>
 
       <View style={{ paddingHorizontal: 16 }}>
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "700", marginBottom: 6 }}>Enter Order OTP</Text>
+          <TextInput
+            value={otpInput}
+            onChangeText={(t) => setOtpInput(t.slice(0, 6))}
+            keyboardType="number-pad"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 4,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+            }}
+          />
+        </View>
+
         <View
           style={{
             backgroundColor: "#fff",
@@ -212,11 +238,11 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
               alignItems: "center",
             }}
           >
-            <Text style={{ color: "#fff", fontWeight: "700" }}>STOP DISPENSING</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ gap: 10 }}>
-            <TouchableOpacity
+          <Text style={{ color: "#fff", fontWeight: "700" }}>STOP DISPENSING</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity
               onPress={onCollectPayment}
               style={{
                 width: "100%",
@@ -230,8 +256,8 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={generateAndSharePDF}
-              disabled={sharing}
+              onPress={createAndShareInvoice}
+              disabled={sharing || processingPayment}
               style={{
                 width: "100%",
                 borderWidth: 1,
@@ -239,14 +265,57 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
                 paddingVertical: 14,
                 borderRadius: 4,
                 alignItems: "center",
-                opacity: sharing ? 0.6 : 1,
+                opacity: sharing || processingPayment ? 0.6 : 1,
               }}
             >
               <Text style={{ color: COLORS.text, fontWeight: "700" }}>
-                {sharing ? "Preparing PDF..." : "Generate PDF Receipt & View Earnings"}
+                {processingPayment
+                  ? "Processing Secure Payment..."
+                  : sharing
+                  ? "Preparing PDF..."
+                  : "Generate PDF Receipt & View Earnings"}
               </Text>
             </TouchableOpacity>
+
+            {paymentSuccess && (
+              <TouchableOpacity
+                onPress={createAndShareInvoice}
+                style={{
+                  width: "100%",
+                  paddingVertical: 12,
+                  borderRadius: 4,
+                  alignItems: "center",
+                  backgroundColor: "#EEF2FF",
+                  borderColor: COLORS.border,
+                  borderWidth: 1,
+                }}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "700" }}>Download Invoice</Text>
+              </TouchableOpacity>
+            )}
           </View>
+        )}
+        {!running && !authorized && (
+          <TouchableOpacity
+            onPress={() => {
+              if (otpInput === orderOtp) {
+                setAuthorized(true);
+                setRunning(true);
+              } else {
+                Alert.alert("Invalid OTP", "Please enter the correct Order OTP to start dispensing.");
+              }
+            }}
+            style={{
+              marginTop: 12,
+              width: "100%",
+              backgroundColor: "#4F46E5",
+              paddingVertical: 14,
+              borderRadius: 4,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Start Dispensing</Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>

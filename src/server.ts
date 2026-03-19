@@ -6,6 +6,7 @@ import type { SyncRequestBody, IncomingFuelLog } from "./types";
 import { authenticateToken } from "./middleware/auth";
 import authRouter from "./api/auth";
 import ordersRouter from "./api/orders";
+import paymentsRouter from "./api/payments";
 
 dotenv.config();
 
@@ -17,10 +18,11 @@ app.use(cors());
 app.use(express.json());
 app.use("/api/auth", authRouter);
 app.use("/api/orders", ordersRouter);
+app.use("/api/payments", paymentsRouter);
 
 // ─── Health Check ───────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "SmartFuel Backend Active" });
+  res.status(200).json({ status: "ok" });
 });
 
 // ─── Sync Endpoint ──────────────────────────────────────────

@@ -13,7 +13,7 @@ import { relations } from "drizzle-orm";
 
 // Enums
 export const kycStatusEnum = ["pending", "verified", "rejected"] as const;
-export const orderStatusEnum = ["pending", "confirmed", "in_transit", "delivered"] as const;
+export const orderStatusEnum = ["pending", "confirmed", "accepted", "in_transit", "delivered"] as const;
 
 // Organizations
 export const organizations = pgTable("organizations", {
@@ -105,6 +105,14 @@ export const mduControllers = pgTable("mdu_controllers", {
   isActive: boolean("is_active").notNull().default(true),
 });
 
+// Bank Documents
+export const bankDocuments = pgTable("bank_documents", {
+  driverId: uuid("driver_id").primaryKey().references(() => drivers.id),
+  bankName: text("bank_name"),
+  accountNumber: text("account_number"),
+  ifscCode: text("ifsc_code"),
+});
+
 // Sync Events
 export const syncEvents = pgTable("sync_events", {
   id: uuid("id").primaryKey().defaultRandom(),
@@ -144,4 +152,8 @@ export const transactionsRelations = relations(transactions, ({ one }) => ({
 
 export const mduControllersRelations = relations(mduControllers, ({ one }) => ({
   vehicle: one(vehicles, { fields: [mduControllers.vehicleId], references: [vehicles.id] }),
+}));
+
+export const bankDocumentsRelations = relations(bankDocuments, ({ one }) => ({
+  driver: one(drivers, { fields: [bankDocuments.driverId], references: [drivers.id] }),
 }));

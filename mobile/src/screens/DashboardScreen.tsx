@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, FlatList, Alert, ActivityIndicator } from "react-native";
 import axios from "axios";
 import OrderDetailScreen from "./OrderDetailScreen";
+import { useNavigation } from "@react-navigation/native";
 
 const API_URL = process.env.API_URL || "http://localhost:3000";
 
@@ -11,22 +12,26 @@ type Order = {
   customer_area?: string;
   status: string;
   expected_volume?: string;
-  vehicle_id?: string;
+  vehicle_registration?: string;
+  customer_lat?: number;
+  customer_lng?: number;
+  scheduled_date?: string;
 };
 
-const TABS = ["Available Orders", "In Progress"] as const;
+const TABS = ["Available", "In Progress"] as const;
 
 const DashboardScreen: React.FC = () => {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Available Orders");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Available");
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<Order | null>(null);
+  const navigation = useNavigation<any>();
 
   const fetchOrders = async () => {
     try {
       setLoading(true);
       const res = await axios.get(`${API_URL}/api/orders`, {
-        params: tab === "Available Orders" ? { status: "PENDING" } : { status: "ACCEPTED" },
+        params: tab === "Available" ? { status: "pending" } : { status: "accepted" },
       });
       setOrders(res.data?.data || []);
     } catch (err: any) {
@@ -44,8 +49,7 @@ const DashboardScreen: React.FC = () => {
     try {
       setLoading(true);
       await axios.patch(`${API_URL}/api/orders/${orderId}/accept`, {
-        driverId: "driver-placeholder",
-        vehicleId: "vehicle-placeholder",
+        driverId: "driver-demo",
       });
       Alert.alert("Accepted", "Order moved to In Progress");
       fetchOrders();
@@ -62,6 +66,12 @@ const DashboardScreen: React.FC = () => {
 
   return (
     <View style={{ flex: 1, backgroundColor: "#fff", paddingTop: 12 }}>
+      <View style={{ flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 12, marginBottom: 8 }}>
+        <Text style={{ fontSize: 18, fontWeight: "800" }}>Orders</Text>
+        <TouchableOpacity onPress={() => navigation.navigate("Profile")}>
+          <Text style={{ color: "#4F46E5", fontWeight: "700" }}>Profile</Text>
+        </TouchableOpacity>
+      </View>
       <View style={{ flexDirection: "row", marginHorizontal: 12, marginBottom: 12 }}>
         {TABS.map((t) => {
           const active = t === tab;
@@ -101,10 +111,12 @@ const DashboardScreen: React.FC = () => {
                 padding: 12,
               }}
             >
-              <Text style={{ fontWeight: "800", fontSize: 16 }}>{item.customer_name || "Customer"}</Text>
-              <Text style={{ color: "#6B7280", marginVertical: 4 }}>{item.customer_area || "Area"}</Text>
+              <Text style={{ fontWeight: "800", fontSize: 16 }}>{item.customer_name || "Client"}</Text>
+              <Text style={{ color: "#6B7280", marginVertical: 4 }}>
+                Volume: {item.expected_volume || "N/A"} • Vehicle: TS-09-EA-1234
+              </Text>
               <Text style={{ color: "#6B7280" }}>Status: {item.status}</Text>
-              {tab === "Available Orders" ? (
+              {tab === "Available" ? (
                 <TouchableOpacity
                   onPress={() => acceptOrder(item.id)}
                   style={{
@@ -115,7 +127,7 @@ const DashboardScreen: React.FC = () => {
                     alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700" }}>Accept</Text>
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>Accept Order</Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
@@ -128,7 +140,7 @@ const DashboardScreen: React.FC = () => {
                     alignItems: "center",
                   }}
                 >
-                  <Text style={{ color: "#fff", fontWeight: "700" }}>Open</Text>
+                  <Text style={{ color: "#fff", fontWeight: "700" }}>View Details</Text>
                 </TouchableOpacity>
               )}
             </View>

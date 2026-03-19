@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS offline_queue (
   created_at DATETIME
 );`;
 
+const SYNC_EVENTS_SQL = `
+CREATE TABLE IF NOT EXISTS sync_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type TEXT,
+  payload TEXT,
+  status TEXT DEFAULT 'PENDING',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`;
+
 const db = SQLite.openDatabase(DB_NAME);
 
 const applyPragmas = async () => {
@@ -64,6 +73,7 @@ const genUuid = () => {
 export const initDB = async () => {
   await applyPragmas();
   await exec(TABLE_SQL);
+  await exec(SYNC_EVENTS_SQL);
 };
 
 export const enqueueAction = async (type: string, payload: unknown) => {
@@ -99,6 +109,27 @@ export const getPendingActions = async (): Promise<QueueRecord[]> => {
 
 export const markAsSynced = async (uuid: string) => {
   await exec(`UPDATE offline_queue SET status = 'SYNCED' WHERE uuid = ?`, [uuid]);
+};
+
+export const enqueueSyncEvent = async (type: string, payload: unknown) => {
+  let payloadStr = "{}";
+  try {
+    payloadStr = JSON.stringify(payload ?? {});
+  } catch {
+    payloadStr = "{}";
+  }
+  await exec(`INSERT INTO sync_events (type, payload, status) VALUES (?, ?, 'PENDING')`, [type, payloadStr]);
+};
+
+export const getPendingSyncEvents = async () => {
+  const res = await exec(`SELECT * FROM sync_events WHERE status = 'PENDING' ORDER BY created_at ASC`);
+  const out: any[] = [];
+  for (let i = 0; i < res.rows.length; i++) out.push(res.rows.item(i));
+  return out;
+};
+
+export const deleteSyncEvent = async (id: number) => {
+  await exec(`DELETE FROM sync_events WHERE id = ?`, [id]);
 };
 
 export default db;
