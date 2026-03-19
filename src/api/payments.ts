@@ -5,7 +5,11 @@ import { orders, transactions } from "../db/schema";
 import { eq } from "drizzle-orm";
 
 const router = express.Router();
-const PAYMENT_SECRET = process.env.PAYMENT_SECRET || "smartfuel_mock_secret_2024";
+const PAYMENT_SECRET = process.env.PAYMENT_SECRET;
+
+if (!PAYMENT_SECRET) {
+  throw new Error("PAYMENT_SECRET is not set");
+}
 
 router.post("/create-order", async (req, res) => {
   try {
