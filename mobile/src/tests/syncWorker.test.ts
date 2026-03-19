@@ -1,4 +1,3 @@
-import { syncPendingEvents } from "../services/syncWorker";
 import { jest } from "@jest/globals";
 
 jest.mock("../db/sqlite", () => ({
@@ -12,6 +11,10 @@ jest.mock("axios", () => ({
 }));
 
 const { getPendingSyncEvents, deleteSyncEvent } = jest.requireMock("../db/sqlite");
+
+// Import after mocks so the worker uses mocked dependencies
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { syncPendingEvents } = require("../services/syncWorker");
 
 describe("syncWorker", () => {
   beforeEach(() => {
