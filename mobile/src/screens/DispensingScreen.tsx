@@ -68,6 +68,15 @@ const DispensingScreen: React.FC<Props> = ({ route }) => {
     }, [running])
   );
 
+  React.useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
   const recordDispense = async () => {
     try {
       await enqueueAction("DISPENSE_FUEL", {
