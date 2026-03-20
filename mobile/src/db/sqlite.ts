@@ -30,6 +30,25 @@ CREATE TABLE IF NOT EXISTS sync_events (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );`;
 
+const LOCAL_LOGS_SQL = `
+CREATE TABLE IF NOT EXISTS local_fuel_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  volume REAL,
+  timestamp TEXT,
+  status TEXT,
+  orderId TEXT
+);`;
+
+const SYNC_QUEUE_SQL = `
+CREATE TABLE IF NOT EXISTS sync_queue (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  uuid TEXT UNIQUE,
+  type TEXT,
+  payload TEXT,
+  status TEXT DEFAULT 'PENDING',
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);`;
+
 const db = SQLite.openDatabaseSync(DB_NAME);
 
 const applyPragmas = async () => {
@@ -69,6 +88,8 @@ export const initDB = async () => {
   await applyPragmas();
   await db.execAsync(TABLE_SQL);
   await db.execAsync(SYNC_EVENTS_SQL);
+  await db.execAsync(LOCAL_LOGS_SQL);
+  await db.execAsync(SYNC_QUEUE_SQL);
 };
 
 export const enqueueAction = async (type: string, payload: unknown) => {
