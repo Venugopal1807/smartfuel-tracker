@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { ArrowLeft, CheckCircle2, Clock } from 'lucide-react-native';
-import { getLogs, FuelLog } from '../database/db';
+import { getLogs, FuelLog } from '../db/sqlite';
 
 interface Props {
   onNavigate: (screen: 'Dashboard' | 'FuelEntry' | 'SyncHistory') => void;
