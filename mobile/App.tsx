@@ -8,7 +8,8 @@ import { startSyncWorker } from "./src/services/syncWorker";
 
 import LoginScreen from "./src/screens/LoginScreen";
 import SignupScreen from "./src/screens/SignupScreen";
-import Dashboard from "./src/screens/Dashboard";
+// FIX 1: Point this to the real Dashboard Screen
+import DashboardScreen from "./src/screens/DashboardScreen"; 
 import FuelEntry from "./src/screens/FuelEntry";
 import SyncHistory from "./src/screens/SyncHistory";
 
@@ -30,16 +31,13 @@ const SignupWrapper = ({ navigation }: any) => (
   <SignupScreen onSuccess={() => navigation.replace("Dashboard")} onNavigateLogin={() => navigation.navigate("Login")} />
 );
 
-const DashboardWrapper = ({ navigation }: any) => (
-  <Dashboard onNavigate={(screen) => navigation.navigate(screen as any)} />
-);
-
+// We keep these wrappers just in case your FuelEntry/SyncHistory still rely on them
 const FuelEntryWrapper = ({ navigation }: any) => (
-  <FuelEntry onNavigate={(screen) => navigation.navigate(screen as any)} />
+  <FuelEntry onNavigate={(screen: any) => navigation.navigate(screen)} />
 );
 
 const SyncHistoryWrapper = ({ navigation }: any) => (
-  <SyncHistory onNavigate={(screen) => navigation.navigate(screen as any)} />
+  <SyncHistory onNavigate={(screen: any) => navigation.navigate(screen)} />
 );
 
 export default function App() {
@@ -72,7 +70,8 @@ export default function App() {
       <Stack.Navigator initialRouteName="Login" screenOptions={{ headerShown: false }}>
         <Stack.Screen name="Login" component={LoginWrapper} />
         <Stack.Screen name="Signup" component={SignupWrapper} />
-        <Stack.Screen name="Dashboard" component={DashboardWrapper} />
+        {/* FIX 2: Use the newly imported DashboardScreen */}
+        <Stack.Screen name="Dashboard" component={DashboardScreen} />
         <Stack.Screen name="FuelEntry" component={FuelEntryWrapper} />
         <Stack.Screen name="SyncHistory" component={SyncHistoryWrapper} />
       </Stack.Navigator>
