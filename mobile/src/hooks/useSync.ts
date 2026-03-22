@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Alert } from 'react-native';
 import * as Network from 'expo-network';
 import axios from 'axios';
-import { getUnsyncedLogs, markLogAsSynced } from '../database/db';
+import { getUnsyncedLogs, markLogAsSynced } from '../db/sqlite';
 
 export const useSync = () => {
   const [isSyncing, setIsSyncing] = useState(false);

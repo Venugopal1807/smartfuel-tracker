@@ -4,9 +4,17 @@
     "strict": true,
     "module": "esnext",
     "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
+    "jsx": "react-native",
+    "lib": ["dom", "esnext"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+    "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
     "noEmit": true,
-    "skipLibCheck": true
-  }
+    "allowImportingTsExtensions": true
+  },
+  "exclude": ["node_modules", "babel.config.js", "metro.config.js", "jest.config.js"]
 }
