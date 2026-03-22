@@ -6,8 +6,10 @@ import axios from "axios";
 // FIX: Expo requires the EXPO_PUBLIC prefix to read env variables
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
-type Props = { onSuccess?: () => void; onNavigateSignup?: () => void };
-
+type Props = { 
+  onSuccess: (token: string) => void; 
+  onNavigateSignup: () => void 
+};
 const LoginScreen: React.FC<Props> = ({ onSuccess, onNavigateSignup }) => {
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
@@ -15,9 +17,8 @@ const LoginScreen: React.FC<Props> = ({ onSuccess, onNavigateSignup }) => {
   const [errorMessage, setErrorMessage] = useState("");
 
   const submit = async () => {
-    setErrorMessage(""); // clear old errors
+    setErrorMessage("");
     
-    // FIX: Strict Validation
     if (phone.length !== 10) {
       setErrorMessage("Phone number must be exactly 10 digits.");
       return;
@@ -26,18 +27,20 @@ const LoginScreen: React.FC<Props> = ({ onSuccess, onNavigateSignup }) => {
       setErrorMessage("PIN must be exactly 4 digits.");
       return;
     }
-
+  
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/api/auth/login`, { phone, pin });
       
       if (res.data?.token) {
-        await AsyncStorage.setItem("auth_token", res.data.token);
-        onSuccess?.();
+        const token = res.data.token;
+        // 2. Save to the "Wallet"
+        await AsyncStorage.setItem("auth_token", token);
+        // 3. Hand the "Badge" to App.tsx
+        onSuccess(token); 
       }
     } catch (err: any) {
-      // FIX: Read the exact message from your backend auth.ts
-      const msg = err.response?.data?.message || "Cannot connect to server. Check your network.";
+      const msg = err.response?.data?.message || "Cannot connect to server.";
       setErrorMessage(msg);
     } finally {
       setLoading(false);

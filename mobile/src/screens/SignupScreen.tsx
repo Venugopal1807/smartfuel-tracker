@@ -6,8 +6,10 @@ import axios from "axios";
 // FIX: Expo requires the EXPO_PUBLIC prefix to read env variables
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
-type Props = { onSuccess?: () => void; onNavigateLogin?: () => void };
-
+type Props = { 
+  onSuccess: (token: string) => void; 
+  onNavigateLogin: () => void 
+};
 const SignupScreen: React.FC<Props> = ({ onSuccess, onNavigateLogin }) => {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -17,7 +19,7 @@ const SignupScreen: React.FC<Props> = ({ onSuccess, onNavigateLogin }) => {
 
   const submit = async () => {
     setErrorMessage("");
-
+  
     if (!name.trim()) {
       setErrorMessage("Please enter your full name.");
       return;
@@ -30,18 +32,18 @@ const SignupScreen: React.FC<Props> = ({ onSuccess, onNavigateLogin }) => {
       setErrorMessage("PIN must be exactly 4 digits.");
       return;
     }
-
+  
     try {
       setLoading(true);
       const res = await axios.post(`${API_URL}/api/auth/signup`, { name, phone, pin });
       
       if (res.data?.token) {
-        await AsyncStorage.setItem("auth_token", res.data.token);
-        onSuccess?.();
+        const token = res.data.token;
+        await AsyncStorage.setItem("auth_token", token);
+        onSuccess(token); // Handing over the badge!
       }
     } catch (err: any) {
-      // This will grab the "Driver already exists" message from your backend
-      const msg = err.response?.data?.message || "Cannot connect to server. Check your network.";
+      const msg = err.response?.data?.message || "Registration failed.";
       setErrorMessage(msg);
     } finally {
       setLoading(false);
