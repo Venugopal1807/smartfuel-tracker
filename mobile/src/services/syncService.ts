@@ -1,4 +1,4 @@
-import { getPendingActions, markLogAsSynced } from "../db/sqlite"; // Changed markAsSynced to markLogAsSynced
+import { getPendingActions, markAsSynced } from "../db/sqlite";
 
 type SyncResult =
   | { success: true; processedCount: number; failedCount: number }
@@ -26,8 +26,7 @@ export const processSyncQueue = async (): Promise<SyncResult> => {
         continue; // leave as PENDING for retry
       }
 
-      // Updated the function call here as well
-      await markLogAsSynced(action.uuid);
+      await markAsSynced(action.uuid);
       processed += 1;
     }
 
