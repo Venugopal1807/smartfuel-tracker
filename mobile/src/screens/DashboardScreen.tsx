@@ -6,8 +6,16 @@ import { useNavigation } from "@react-navigation/native";
 import { Bell, Truck, ChevronDown, MapPin, User } from "lucide-react-native";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
-
 const TABS = ["New", "Confirmed", "In Transit", "History"] as const;
+
+// 1. Define the Order Type for the TypeScript Compiler
+interface Order {
+  id: string;
+  order_number?: string;
+  customer_name?: string;
+  expected_volume?: string;
+  status: string;
+}
 
 const getOrderNumber = (id: string) => {
   const cleanId = id.replace(/[^a-zA-Z0-9]/g, '');
@@ -16,7 +24,7 @@ const getOrderNumber = (id: string) => {
 
 export default function DashboardScreen() {
   const [tab, setTab] = useState<(typeof TABS)[number]>("New");
-  const [orders, setOrders] = useState<any[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const navigation = useNavigation<any>();
 
@@ -44,14 +52,15 @@ export default function DashboardScreen() {
 
   useEffect(() => { fetchOrders(); }, [tab]);
 
-  // FIX: New function to save order data so Tabs can access it
-  const handleViewOrder = async (item: any) => {
+  const handleViewOrder = async (item: Order) => {
+    // Save to memory so other screens can access the data
     await AsyncStorage.setItem("active_order", JSON.stringify(item));
     await AsyncStorage.setItem("active_order_id", item.id);
     navigation.navigate("Timeline", { order: item });
   };
 
-  const renderOrder = ({ item }: { item: any }) => (
+  // 2. Properly Typed Component to fix GitHub Action 'IntrinsicAttributes' error
+  const OrderItem = ({ item }: { item: Order }) => (
     <View style={styles.card}>
       <View style={styles.cardHeader}>
         <Text style={styles.volumeText}>{item.expected_volume || "500.0"} L</Text>
@@ -101,7 +110,10 @@ export default function DashboardScreen() {
             <TouchableOpacity style={styles.iconBtn}>
               <Bell size={22} color="#1F2937" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={[styles.iconBtn, { marginLeft: 12 }]}>
+            <TouchableOpacity 
+              onPress={() => navigation.navigate('Profile')} 
+              style={[styles.iconBtn, { marginLeft: 12 }]}
+            >
               <User size={22} color="#1F2937" />
             </TouchableOpacity>
           </View>
@@ -148,7 +160,7 @@ export default function DashboardScreen() {
                 <Text style={styles.emptyTitle}>No {tab.toLowerCase()} orders</Text>
               </View>
             ) : (
-              orders.map((order) => <View key={order.id}>{renderOrder({ item: order })}</View>)
+              orders.map((order) => <OrderItem key={order.id} item={order} />)
             )}
           </View>
 
@@ -163,7 +175,7 @@ const styles = StyleSheet.create({
   container: { 
     flex: 1, 
     backgroundColor: "#F9FAFB",
-    // FIX: Content moved further down to clear the status bar
+    // Pushes content down to clear camera/notch area
     paddingTop: Platform.OS === 'android' ? 50 : 20 
   },
 
