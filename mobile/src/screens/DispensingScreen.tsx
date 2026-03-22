@@ -1,228 +1,334 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, Alert, TextInput, StyleSheet, SafeAreaView, ScrollView, Platform } from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { View, Text, TouchableOpacity, Alert, TextInput } from "react-native";
+import { useFocusEffect } from "@react-navigation/native";
 import { enqueueAction } from "../db/sqlite";
 import axios from "axios";
 import { processPayment } from "../services/paymentService";
-import { Info, CheckCircle2 } from "lucide-react-native";
-import * as Crypto from 'expo-crypto'; // <-- Added for secure OTP hashing
+import * as Sharing from "expo-sharing";
+import { generateInvoice } from "../services/pdfService";
 
-const RATE = 214; 
+const COLORS = {
+  primary: "#4F46E5",
+  border: "#E5E7EB",
+  success: "#10B981",
+  danger: "#DC2626",
+  text: "#111827",
+  muted: "#6B7280",
+};
 
-export default function DispensingScreen({ route, navigation }: any) {
-  const orderId = route.params?.orderId || "demo-order";
-  
+interface Props {
+  route: { params?: { customer?: string; pumpId?: string; orderId?: string; orderOtp?: string } };
+}
+
+const formatVolume = (value: number) => value.toFixed(2).padStart(6, "0");
+const RATE = 90;
+
+const escapeHtml = (val: string) =>
+  val
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+
+const DispensingScreen: React.FC<Props> = ({ route }) => {
+  const customer = escapeHtml(route.params?.customer || "Apollo Hospital (Generator B)");
+  const pumpId = escapeHtml(route.params?.pumpId || "MDU_772");
+  const orderId = route.params?.orderId;
+  const orderOtp = route.params?.orderOtp || "1234";
   const [volume, setVolume] = useState(0);
-  const [running, setRunning] = useState(false);
-  const [dispenseComplete, setDispenseComplete] = useState(false);
+  const [running, setRunning] = useState(true);
+  const [sharing, setSharing] = useState(false);
   const [otpInput, setOtpInput] = useState("");
+  const [authorized, setAuthorized] = useState(false);
+  const [finalVolume, setFinalVolume] = useState(0);
   const [processingPayment, setProcessingPayment] = useState(false);
-  
-  const amount = useMemo(() => Math.round(volume * RATE), [volume]);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [invoiceUri, setInvoiceUri] = useState<string | null>(null);
+  const amount = useMemo(() => volume * RATE, [volume]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const startDispensing = () => {
-    setRunning(true);
-    intervalRef.current = setInterval(() => {
-      setVolume((v) => Number((v + 1.28).toFixed(2))); 
-    }, 100);
-  };
+  useFocusEffect(
+    React.useCallback(() => {
+      if (running) {
+        intervalRef.current = setInterval(() => {
+          setVolume((v) => {
+            const next = Number((v + 0.28).toFixed(2));
+            setFinalVolume(next);
+            return next;
+          });
+        }, 100);
+      }
+      return () => {
+        if (intervalRef.current) {
+          clearInterval(intervalRef.current);
+          intervalRef.current = null;
+        }
+      };
+    }, [running])
+  );
 
-  const stopDispensing = async () => {
-    setRunning(false);
-    setDispenseComplete(true);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    
+  React.useEffect(() => {
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, []);
+
+  const recordDispense = async () => {
     try {
-      await enqueueAction("DISPENSE_FUEL", { volume, amount, timestamp: new Date().toISOString() });
+      await enqueueAction("DISPENSE_FUEL", {
+        pumpId,
+        volume,
+        amount,
+        timestamp: new Date().toISOString(),
+      });
     } catch (err) {
       console.error("Failed to enqueue dispense event", err);
     }
   };
 
-  // --- THE FIXED PAYMENT LOGIC ---
-  const handleVerifyAndPay = async () => {
-    if (otpInput.length !== 4) {
-      Alert.alert("Error", "Please enter a 4-digit End OTP.");
-      return;
+  const onStop = async () => {
+    setRunning(false);
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
     }
-    setProcessingPayment(true);
-    
-    try {
-      // 1. Online Flow: Try backend API and custom payment bridge
-      await axios.patch(`${process.env.EXPO_PUBLIC_API_URL}/api/orders/${orderId}/complete`, { final_volume: volume });
-      await processPayment(amount, orderId, otpInput); 
-      
-      Alert.alert("Success", "Delivery verified and complete!", [
-        { text: "Finish", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Main' }] }) }
-      ]);
-
-    } catch (err: any) {
-      // 2. Distinguish Network Errors from Server/Auth Errors
-      // Axios sets !err.response when it cannot reach the server at all
-      const isNetworkError = !err.response || err.message === 'Network Error' || err.code === 'ECONNABORTED';
-
-      if (isNetworkError) {
-        // --- OFFLINE FLOW ---
-        // A. Hash the OTP for security (Never store raw OTPs!)
-        const hashedOtp = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          otpInput
-        );
-
-        // B. Actually save to SQLite Sync Queue
-        await enqueueAction("PAYMENT_PENDING", {
-          orderId,
+    setFinalVolume(volume);
+    await recordDispense();
+    if (orderId) {
+      try {
+        await axios.patch(`${process.env.API_URL || "http://localhost:3000"}/api/orders/${orderId}/complete`, {
           final_volume: volume,
-          amount,
-          otp_hash: hashedOtp,
-          timestamp: new Date().toISOString()
         });
-
-        // C. Alert the Driver
-        Alert.alert(
-          "Offline Mode Active",
-          "Network unavailable. Delivery logged with verified OTP. Status saved as PAYMENT_PENDING for manual settlement.",
-          [{ text: "Acknowledge & Finish", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Main' }] }) }]
-        );
-      } else {
-        // --- STANDARD ERROR FLOW ---
-        // E.g., Backend says "Invalid OTP" or "Order already closed"
-        const errorMsg = err.response?.data?.message || "An error occurred during verification. Please try again.";
-        Alert.alert("Verification Failed", errorMsg, [{ text: "OK" }]);
+      } catch (err: any) {
+        console.error("Complete order failed", err?.message || err);
       }
+    }
+    try {
+      setProcessingPayment(true);
+      await processPayment(amount, orderId || "demo-order");
+      setPaymentSuccess(true);
+      await createAndShareInvoice();
+    } catch (err: any) {
+      Alert.alert("Payment pending", "Will retry payment verification when online.");
     } finally {
       setProcessingPayment(false);
     }
   };
 
+  const onCollectPayment = async () => {
+    await recordDispense();
+  };
+
+  const createAndShareInvoice = async () => {
+    try {
+      setSharing(true);
+      const uri = await generateInvoice({
+        orderNumber: orderId || "demo-order",
+        customerName: customer,
+        area: route.params?.orderOtp || "Area",
+        vehicleReg: pumpId,
+        volume: finalVolume || volume,
+        total: amount,
+        rate: RATE,
+        transactionId: `tx_${Math.random().toString(36).slice(2, 8)}`,
+      });
+      setInvoiceUri(uri);
+      await Sharing.shareAsync(uri);
+    } catch (err: any) {
+      console.error("Invoice error", err?.message || err);
+      Alert.alert("Invoice failed", "Could not generate invoice.");
+    } finally {
+      setSharing(false);
+    }
+  };
+
   return (
-    <View style={styles.container}>
-      {/* 1. TOP WARNING BANNER */}
-      <View style={styles.warningBanner}>
-        <Info size={16} color="#92400E" />
-        <View style={{ marginLeft: 10 }}>
-          <Text style={styles.warningTitle}>Offline Mode</Text>
-          <Text style={styles.warningSubText}>Logs saved locally. Sync. pending.</Text>
+    <View style={{ flex: 1, backgroundColor: "#fff" }}>
+      <View style={{ padding: 16, borderBottomWidth: 1, borderColor: COLORS.border }}>
+        <Text style={{ fontSize: 18, fontWeight: "700", color: COLORS.text }}>
+          {customer}
+        </Text>
+      </View>
+
+      <View
+        style={{
+          margin: 12,
+          padding: 12,
+          borderWidth: 1,
+          borderColor: COLORS.border,
+          borderRadius: 4,
+          backgroundColor: COLORS.success,
+        }}
+      >
+        <Text style={{ color: "#fff", fontWeight: "700" }}>
+          ✅ PUMP_ID: {pumpId} - DISPENSING
+        </Text>
+      </View>
+
+      <View style={{ paddingHorizontal: 16 }}>
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: COLORS.text, fontWeight: "700", marginBottom: 6 }}>Enter Order OTP</Text>
+          <TextInput
+            value={otpInput}
+            onChangeText={(t) => setOtpInput(t.slice(0, 6))}
+            keyboardType="number-pad"
+            style={{
+              borderWidth: 1,
+              borderColor: COLORS.border,
+              borderRadius: 4,
+              paddingHorizontal: 12,
+              paddingVertical: 12,
+            }}
+          />
+        </View>
+
+        <View
+          style={{
+            backgroundColor: "#fff",
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            borderRadius: 4,
+            padding: 16,
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 52,
+              fontWeight: "800",
+              color: COLORS.text,
+              textAlign: "center",
+              letterSpacing: 1,
+            }}
+          >
+            {formatVolume(volume)} L
+          </Text>
+        </View>
+
+        <View
+          style={{
+            marginTop: 12,
+            borderWidth: 1,
+            borderColor: COLORS.border,
+            borderRadius: 4,
+            padding: 14,
+            flexDirection: "row",
+            justifyContent: "space-between",
+          }}
+        >
+          <View>
+            <Text style={{ color: COLORS.muted }}>Rate</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "700" }}>₹ {RATE.toFixed(2)}/L</Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text style={{ color: COLORS.muted }}>Amount</Text>
+            <Text style={{ color: COLORS.text, fontWeight: "800", fontSize: 18 }}>
+              ₹ {amount.toFixed(2)}
+            </Text>
+          </View>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* 2. MAIN VOLUME METER */}
-        <View style={styles.meterArea}>
-          <Text style={styles.mainVolume}>{volume.toFixed(2)}</Text>
-          <Text style={styles.unitLabel}>L</Text>
-        </View>
+      <View style={{ flex: 1 }} />
 
-        {/* 3. AMOUNT & RATE GRID */}
-        <View style={styles.dataGrid}>
-          <View style={styles.dataItem}>
-            <Text style={styles.dataLabel}>Amount</Text>
-            <Text style={styles.dataValue}>₹ {amount.toLocaleString('en-IN')}</Text>
-          </View>
-          <View style={styles.dataItemRight}>
-             <Text style={styles.dataValue}>₹ {RATE} / L</Text>
-          </View>
-        </View>
-
-        {/* 4. TIMELINE DIVIDER */}
-        <View style={styles.timelineDivider}>
-           <View style={styles.line} />
-           <Text style={styles.timelineText}>Timeline arounder</Text>
-           <View style={styles.line} />
-        </View>
-
-        {/* 5. THE SYSTEM SYNC BAR */}
-        <View style={styles.syncBarContainer}>
-           <View style={styles.syncHeader}>
-              <Info size={14} color="#92400E" />
-              <Text style={styles.syncLabel}>OFFLINE MODE:</Text>
-           </View>
-           <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: dispenseComplete ? '100%' : '40%' }]} />
-           </View>
-        </View>
-
-        {/* 6. CONTEXTUAL ACTION AREA */}
-        {!dispenseComplete ? (
-          <TouchableOpacity 
-            style={[styles.actionBtn, running ? styles.bgRed : styles.bgGreen]} 
-            onPress={running ? stopDispensing : startDispensing}
+      <View style={{ padding: 16 }}>
+        {running ? (
+          <TouchableOpacity
+            onPress={onStop}
+            disabled={!running}
+            style={{
+              width: "100%",
+              backgroundColor: COLORS.danger,
+              paddingVertical: 14,
+              borderRadius: 4,
+              alignItems: "center",
+            }}
           >
-            <Text style={styles.actionBtnText}>
-              {running ? "STOP DISPENSING" : "START DISPENSING"}
-            </Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.settlementBox}>
-            <Text style={styles.otpHeader}>Enter End OTP</Text>
-            
-            <View style={styles.otpContainer}>
-              {[0, 1, 2, 3].map((i) => (
-                <View key={i} style={styles.otpBox}>
-                  <Text style={styles.otpChar}>{otpInput[i] || "-"}</Text>
-                </View>
-              ))}
-              <TextInput
-                style={styles.hiddenInput}
-                keyboardType="number-pad"
-                maxLength={4}
-                value={otpInput}
-                onChangeText={setOtpInput}
-                autoFocus={dispenseComplete}
-              />
-            </View>
-
-            <TouchableOpacity 
-              style={[styles.payBtn, processingPayment && { opacity: 0.6 }]} 
-              onPress={handleVerifyAndPay}
-              disabled={processingPayment}
+          <Text style={{ color: "#fff", fontWeight: "700" }}>STOP DISPENSING</Text>
+        </TouchableOpacity>
+      ) : (
+        <View style={{ gap: 10 }}>
+          <TouchableOpacity
+              onPress={onCollectPayment}
+              style={{
+                width: "100%",
+                backgroundColor: COLORS.primary,
+                paddingVertical: 14,
+                borderRadius: 4,
+                alignItems: "center",
+              }}
             >
-              <Text style={styles.payBtnText}>
-                {processingPayment ? "Processing..." : "Verify OTP & Complete Delivery"}
+              <Text style={{ color: "#fff", fontWeight: "700" }}>Collect Payment (Razorpay Mock)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={createAndShareInvoice}
+              disabled={sharing || processingPayment}
+              style={{
+                width: "100%",
+                borderWidth: 1,
+                borderColor: COLORS.border,
+                paddingVertical: 14,
+                borderRadius: 4,
+                alignItems: "center",
+                opacity: sharing || processingPayment ? 0.6 : 1,
+              }}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "700" }}>
+                {processingPayment
+                  ? "Processing Secure Payment..."
+                  : sharing
+                  ? "Preparing PDF..."
+                  : "Generate PDF Receipt & View Earnings"}
               </Text>
             </TouchableOpacity>
+
+            {paymentSuccess && (
+              <TouchableOpacity
+                onPress={createAndShareInvoice}
+                style={{
+                  width: "100%",
+                  paddingVertical: 12,
+                  borderRadius: 4,
+                  alignItems: "center",
+                  backgroundColor: "#EEF2FF",
+                  borderColor: COLORS.border,
+                  borderWidth: 1,
+                }}
+              >
+                <Text style={{ color: COLORS.text, fontWeight: "700" }}>Download Invoice</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
-      </ScrollView>
+        {!running && !authorized && (
+          <TouchableOpacity
+            onPress={() => {
+              if (otpInput === orderOtp) {
+                setAuthorized(true);
+                setRunning(true);
+              } else {
+                Alert.alert("Invalid OTP", "Please enter the correct Order OTP to start dispensing.");
+              }
+            }}
+            style={{
+              marginTop: 12,
+              width: "100%",
+              backgroundColor: "#4F46E5",
+              paddingVertical: 14,
+              borderRadius: 4,
+              alignItems: "center",
+            }}
+          >
+            <Text style={{ color: "#fff", fontWeight: "700" }}>Start Dispensing</Text>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
-}
+};
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  warningBanner: { flexDirection: 'row', backgroundColor: "#FEF3C7", paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15, alignItems: 'center' },
-  warningTitle: { fontWeight: "900", color: "#92400E", fontSize: 14 },
-  warningSubText: { color: "#B45309", fontSize: 12, fontWeight: '600' },
-  scrollContent: { paddingHorizontal: 24, alignItems: 'center' },
-  meterArea: { flexDirection: 'row', alignItems: 'baseline', marginTop: 50, marginBottom: 40 },
-  mainVolume: { fontSize: 80, fontWeight: "300", color: "#111827", letterSpacing: -2 },
-  unitLabel: { fontSize: 36, fontWeight: "400", color: "#111827", marginLeft: 8 },
-  dataGrid: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 20 },
-  dataItem: { gap: 4 },
-  dataItemRight: { justifyContent: 'flex-end', paddingBottom: 2 },
-  dataLabel: { fontSize: 13, color: "#6B7280", fontWeight: "700", textTransform: 'uppercase' },
-  dataValue: { fontSize: 24, fontWeight: "900", color: "#111827" },
-  timelineDivider: { flexDirection: 'row', alignItems: 'center', width: '100%', marginVertical: 20, gap: 10 },
-  line: { flex: 1, height: 1, backgroundColor: '#F3F4F6' },
-  timelineText: { color: '#D1D5DB', fontSize: 11, fontWeight: '700' },
-  syncBarContainer: { width: '100%', backgroundColor: '#FDE68A', borderRadius: 12, padding: 16, marginBottom: 40 },
-  syncHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  syncLabel: { fontWeight: "900", color: "#92400E", fontSize: 12 },
-  progressBarBg: { height: 6, backgroundColor: 'rgba(146, 64, 14, 0.15)', borderRadius: 3 },
-  progressBarFill: { height: '100%', backgroundColor: '#D97706', borderRadius: 3 },
-  actionBtn: { width: '100%', paddingVertical: 18, borderRadius: 16, alignItems: 'center', elevation: 4 },
-  bgGreen: { backgroundColor: '#10B981' },
-  bgRed: { backgroundColor: '#EF4444' },
-  actionBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
-  settlementBox: { width: '100%', alignItems: 'center' },
-  otpHeader: { fontSize: 14, fontWeight: '700', color: '#6B7280', marginBottom: 15 },
-  otpContainer: { flexDirection: 'row', gap: 12, marginBottom: 30, justifyContent: 'center' },
-  otpBox: { width: 55, height: 65, borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
-  otpChar: { fontSize: 24, fontWeight: '800', color: '#111827' },
-  hiddenInput: { position: 'absolute', opacity: 0, width: '100%', height: '100%' },
-  payBtn: { width: '100%', backgroundColor: '#111827', paddingVertical: 20, borderRadius: 16, alignItems: 'center' },
-  payBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 }
-});
+export default DispensingScreen;

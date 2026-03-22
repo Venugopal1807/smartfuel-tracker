@@ -1,163 +1,167 @@
-import React, { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Platform } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { ChevronLeft, CheckCircle2, Circle, Target, Truck, MapPin } from "lucide-react-native";
+import React, { useMemo, useRef } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Dimensions, Alert } from "react-native";
+import MapView, { Marker, Polyline, LatLng, MapViewProps } from "react-native-maps";
 
-const { height, width } = Dimensions.get("window");
+const COLORS = {
+  primary: "#4F46E5",
+  border: "#E5E7EB",
+  text: "#111827",
+  muted: "#6B7280",
+};
 
-export default function TransitScreen() {
-  const navigation = useNavigation<any>();
-  const route = useRoute<any>();
-  const [order, setOrder] = useState<any>(null);
+const { height } = Dimensions.get("window");
+const MAP_HEIGHT = height * 0.6;
 
-  useEffect(() => {
-    const loadOrder = async () => {
-      const saved = await AsyncStorage.getItem("active_order");
-      if (saved) setOrder(JSON.parse(saved));
+const driverLocation: LatLng = { latitude: 28.6139, longitude: 77.2090 };
+const destinationLocation: LatLng = { latitude: 28.5355, longitude: 77.2639 };
+
+const routeCoords: LatLng[] = [driverLocation, destinationLocation];
+
+const TransitScreen: React.FC = () => {
+  const mapRef = useRef<MapView>(null);
+
+  const region = useMemo(() => {
+    const midLat = (driverLocation.latitude + destinationLocation.latitude) / 2;
+    const midLng = (driverLocation.longitude + destinationLocation.longitude) / 2;
+    return {
+      latitude: midLat,
+      longitude: midLng,
+      latitudeDelta: Math.abs(driverLocation.latitude - destinationLocation.latitude) * 2 || 0.1,
+      longitudeDelta: Math.abs(driverLocation.longitude - destinationLocation.longitude) * 2 || 0.1,
     };
-    loadOrder();
   }, []);
 
+  const fitRoute = () => {
+    if (mapRef.current) {
+      mapRef.current.fitToCoordinates(routeCoords, {
+        edgePadding: { top: 60, right: 40, bottom: 200, left: 40 },
+        animated: true,
+      });
+    }
+  };
+
+  const handleArrived = () => {
+    Alert.alert("Arrived", "Proceed to Security Check.");
+  };
+
   return (
-    <View style={styles.container}>
-      
-      {/* --- 1. THE MAP BACKGROUND --- */}
-      <View style={styles.mapContainer}>
-        <View style={styles.mapGrid}>
-          {[...Array(10)].map((_, i) => <View key={i} style={[styles.gridV, { left: i * (width / 10) }]} />)}
-          <View style={styles.routeLine} />
-          <View style={styles.truckMarker}>
-             <Truck size={20} color="#fff" />
-          </View>
-        </View>
-        
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ChevronLeft size={24} color="#111827" />
-        </TouchableOpacity>
+    <View style={{ flex: 1, backgroundColor: "#fff" }}>
+      <View style={{ height: MAP_HEIGHT }}>
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          initialRegion={region}
+          onMapReady={fitRoute}
+          showsUserLocation={false}
+        >
+          <Marker coordinate={driverLocation} title="Driver" description="Current position" />
+          <Marker coordinate={destinationLocation} title="Apollo Hospital" description="Destination" />
+          <Polyline coordinates={routeCoords} strokeColor={COLORS.primary} strokeWidth={4} />
+        </MapView>
       </View>
 
-      {/* --- 2. THE CHECKPOINT SHEET --- */}
-      <View style={styles.sheet}>
-        <View style={styles.dragHandle} />
-        
-        {/* Header Row */}
-        <View style={styles.sheetHeader}>
-          <Text style={styles.headerTitle}>In Transit</Text>
-          <View style={styles.distBadge}>
-            <Text style={styles.distText}>725 m</Text>
+      <View style={styles.sheetWrapper}>
+        <View style={styles.card}>
+          <Text style={styles.title}>En Route to Apollo Hospital</Text>
+          <Text style={styles.sub}>ETA 14 mins • Distance 6.2 km</Text>
+
+          <View style={{ marginTop: 12 }}>
+            <Text style={styles.section}>Timeline</Text>
+            <View style={styles.timelineRow}>
+              <View style={[styles.dot, { backgroundColor: COLORS.primary }]} />
+              <Text style={styles.timelineText}>Departure</Text>
+            </View>
+            <View style={styles.timelineRow}>
+              <View style={[styles.dot, { backgroundColor: COLORS.primary }]} />
+              <Text style={styles.timelineText}>On the Way</Text>
+            </View>
+            <View style={styles.timelineRow}>
+              <View style={[styles.dot, { backgroundColor: COLORS.border }]} />
+              <Text style={styles.timelineText}>Security Check</Text>
+            </View>
+          </View>
+
+          <View style={{ marginTop: 16 }}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={styles.outlineButton}
+              onPress={() => Alert.alert("Navigation", "Launch Google Maps turn-by-turn")}
+            >
+              <Text style={{ color: COLORS.text, fontWeight: "700" }}>Turn-by-Turn (Google Maps)</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              activeOpacity={0.9}
+              style={[styles.primaryButton, { marginTop: 10 }]}
+              onPress={handleArrived}
+            >
+              <Text style={{ color: "#fff", fontWeight: "700" }}>I HAVE ARRIVED</Text>
+            </TouchableOpacity>
           </View>
         </View>
-
-        {/* Vertical Timeline */}
-        <View style={styles.timeline}>
-          <View style={styles.timelineItem}>
-            <CheckCircle2 size={20} color="#10B981" />
-            <View style={styles.timelineTextGroup}>
-              <Text style={styles.timelineTitle}>Arrived at Apollo Hospital</Text>
-              <Text style={styles.timelineSub}>11:15 AM</Text>
-            </View>
-          </View>
-          <View style={styles.verticalLineActive} />
-          
-          <View style={styles.timelineItem}>
-            <Target size={20} color="#2563EB" />
-            <View style={styles.timelineTextGroup}>
-              <Text style={styles.timelineTitle}>Security Check</Text>
-              <Text style={styles.timelineSub}>11:30 AM</Text>
-            </View>
-          </View>
-          <View style={styles.verticalLineInactive} />
-
-          <View style={styles.timelineItem}>
-            <View style={styles.dotInactive} />
-            <View style={styles.timelineTextGroup}>
-              <Text style={styles.timelineTitleInactive}>Fuel Dispensing</Text>
-              <Text style={styles.timelineSubInactive}>In Progress</Text>
-            </View>
-          </View>
-          <View style={styles.verticalLineInactive} />
-
-          <View style={styles.timelineItem}>
-            <Circle size={18} color="#D1D5DB" />
-            <View style={styles.timelineTextGroup}>
-              <Text style={styles.timelineTitleInactive}>Completed</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Next Context Card */}
-        <View style={styles.contextCard}>
-          <View style={styles.contextHeader}>
-            <View style={styles.greenDotCircle}>
-              <View style={styles.greenDot} />
-            </View>
-            <Text style={styles.contextTitle}>Arrived at Eva Diagnostics</Text>
-          </View>
-          <View style={styles.contextFooter}>
-            <View style={styles.vehicleInfo}>
-              <Truck size={14} color="#6B7280" />
-              <Text style={styles.vehicleText}>{order?.vehicle_registration || "KA12AB1234"}</Text>
-            </View>
-            <Text style={styles.priceText}>₹ 214 / L</Text>
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.arriveBtn}
-          onPress={() => navigation.navigate("Security", { orderId: order?.id })}
-        >
-          <Text style={styles.arriveBtnText}>I HAVE ARRIVED</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
-}
+};
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  
-  // Map styles
-  mapContainer: { height: height * 0.45, backgroundColor: "#F3F4F6" },
-  mapGrid: { ...StyleSheet.absoluteFillObject, backgroundColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' },
-  gridV: { position: 'absolute', width: 1, height: '100%', backgroundColor: '#D1D5DB' },
-  routeLine: { position: 'absolute', width: 4, height: 150, backgroundColor: '#2563EB', top: '20%', left: '45%', borderRadius: 2 },
-  truckMarker: { position: 'absolute', top: '50%', left: '42%', backgroundColor: '#111827', padding: 8, borderRadius: 10, elevation: 5 },
-  backBtn: { position: 'absolute', top: 50, left: 16, backgroundColor: '#fff', padding: 8, borderRadius: 10, elevation: 3 },
-
-  // Sheet styles
-  sheet: { flex: 1, backgroundColor: "#fff", borderTopLeftRadius: 32, borderTopRightRadius: 32, marginTop: -35, padding: 24, shadowColor: "#000", shadowOpacity: 0.1, shadowRadius: 10, elevation: 20 },
-  dragHandle: { width: 36, height: 4, backgroundColor: '#E5E7EB', borderRadius: 2, alignSelf: 'center', marginBottom: 20 },
-  
-  sheetHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
-  headerTitle: { fontSize: 24, fontWeight: "900", color: "#111827" },
-  distBadge: { backgroundColor: '#2563EB', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
-  distText: { color: '#fff', fontWeight: '800', fontSize: 13 },
-
-  // Timeline styles
-  timeline: { paddingLeft: 4, marginBottom: 24 },
-  timelineItem: { flexDirection: 'row', alignItems: 'center', gap: 16 },
-  timelineTextGroup: { flex: 1 },
-  timelineTitle: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  timelineSub: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  timelineTitleInactive: { fontSize: 15, fontWeight: '700', color: '#9CA3AF' },
-  timelineSubInactive: { fontSize: 12, color: '#D1D5DB' },
-  
-  verticalLineActive: { width: 2, height: 24, backgroundColor: '#2563EB', marginLeft: 9, marginVertical: 4 },
-  verticalLineInactive: { width: 2, height: 24, backgroundColor: '#F3F4F6', marginLeft: 9, marginVertical: 4 },
-  dotInactive: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#D1D5DB', marginLeft: 5 },
-
-  // Context Card
-  contextCard: { backgroundColor: '#F9FAFB', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F3F4F6', marginBottom: 24 },
-  contextHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
-  greenDotCircle: { width: 20, height: 20, borderRadius: 10, backgroundColor: '#ECFDF5', justifyContent: 'center', alignItems: 'center' },
-  greenDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
-  contextTitle: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  contextFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 12 },
-  vehicleInfo: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  vehicleText: { fontSize: 13, fontWeight: '700', color: '#6B7280' },
-  priceText: { fontSize: 14, fontWeight: '800', color: '#111827' },
-
-  arriveBtn: { backgroundColor: '#111827', paddingVertical: 18, borderRadius: 16, alignItems: 'center' },
-  arriveBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  sheetWrapper: {
+    marginTop: -24,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+  },
+  card: {
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 4,
+    padding: 14,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: COLORS.text,
+  },
+  sub: {
+    color: COLORS.muted,
+    marginTop: 4,
+  },
+  section: {
+    color: COLORS.text,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 4,
+  },
+  dot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  timelineText: {
+    color: COLORS.text,
+    fontWeight: "600",
+  },
+  outlineButton: {
+    width: "100%",
+    paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    borderRadius: 4,
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  primaryButton: {
+    width: "100%",
+    paddingVertical: 14,
+    borderRadius: 4,
+    alignItems: "center",
+    backgroundColor: COLORS.primary,
+  },
 });
+
+export default TransitScreen;

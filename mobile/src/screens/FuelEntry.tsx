@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import * as Location from 'expo-location';
 import { ArrowLeft, Save } from 'lucide-react-native';
-import { saveFuelLog } from '../db/sqlite';
+import { saveFuelLog } from '../database/db';
 
 interface Props {
   onNavigate: (screen: 'Dashboard' | 'FuelEntry' | 'SyncHistory') => void;
