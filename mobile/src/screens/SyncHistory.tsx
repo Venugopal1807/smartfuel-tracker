@@ -1,14 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, TouchableOpacity, StyleSheet } from 'react-native';
 import { ArrowLeft, CheckCircle2, Clock } from 'lucide-react-native';
-import { getLogs, FuelLog } from '../database/db';
+import { getLogs, FuelLog } from '../db/sqlite';
+import { useNavigation } from '@react-navigation/native'; // <-- Added Hook
 
-interface Props {
-  onNavigate: (screen: 'Dashboard' | 'FuelEntry' | 'SyncHistory') => void;
-}
-
-export default function SyncHistory({ onNavigate }: Props) {
+export default function SyncHistory() {
   const [logs, setLogs] = useState<FuelLog[]>([]);
+  const navigation = useNavigation<any>(); // <-- Initialize Navigation
 
   useEffect(() => {
     // Fetch logs from local SQLite database on mount
@@ -23,7 +21,8 @@ export default function SyncHistory({ onNavigate }: Props) {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={() => onNavigate('Dashboard')}>
+        {/* FIX: Use navigation.goBack() instead of the prop */}
+        <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
           <ArrowLeft size={24} color="#374151" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Local Fuel Logs</Text>
@@ -46,9 +45,9 @@ export default function SyncHistory({ onNavigate }: Props) {
           renderItem={({ item }) => (
             <View style={styles.card}>
               <View>
-                <Text style={styles.volumeText}>{item.volume.toFixed(2)} L</Text>
+                <Text style={styles.volumeText}>{item.volume?.toFixed(2) || '0.00'} L</Text>
                 <Text style={styles.timestampText}>
-                  {new Date(item.timestamp).toLocaleString()}
+                  {item.timestamp ? new Date(item.timestamp).toLocaleString() : 'Unknown Time'}
                 </Text>
               </View>
               
