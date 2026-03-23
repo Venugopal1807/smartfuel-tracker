@@ -7,43 +7,52 @@ import { authenticateToken } from "./middleware/auth";
 import authRouter from "./api/auth";
 import ordersRouter from "./api/orders";
 import paymentsRouter from "./api/payments";
+import { db } from "./db/index";
+import { transactions, fuelLogs } from "./db/schema"; 
+import { eq, sql, and } from "drizzle-orm";
 
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = Number(process.env.PORT) || 3000;
 
 // ─── Middleware ──────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
+
+// DEBUG LOGGER: Essential for tracking mobile sync attempts
+app.use((req, res, next) => {
+  console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+  next();
+});
+
+// ─── API Routes ─────────────────────────────────────────────
 app.use("/api/auth", authRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/payments", paymentsRouter);
 
 // ─── Health Check ───────────────────────────────────────────
 app.get("/api/health", (_req, res) => {
-  res.status(200).json({ status: "ok" });
+  res.status(200).json({ status: "ok", serverTime: new Date().toISOString() });
 });
 
-// ─── Sync Endpoint ──────────────────────────────────────────
+// ─── Sync Endpoint (UUID Compatible) ────────────────────────
 app.post("/api/logs/sync", async (req, res) => {
   try {
     const body = req.body as SyncRequestBody;
 
-    // --- Validation ---
     if (!body.logs || !Array.isArray(body.logs) || body.logs.length === 0) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
-        message: "Request body must contain a non-empty 'logs' array.",
+        message: "Request must contain a non-empty 'logs' array.",
       });
-      return;
     }
 
     const invalidLogs: number[] = [];
     body.logs.forEach((log: IncomingFuelLog, index: number) => {
       if (
         !log.mobileOfflineId ||
-        typeof log.userId !== "number" ||
+        typeof log.userId !== "string" || 
         typeof log.volume !== "number" ||
         log.volume <= 0 ||
         !log.timestamp
@@ -53,57 +62,44 @@ app.post("/api/logs/sync", async (req, res) => {
     });
 
     if (invalidLogs.length > 0) {
-      res.status(400).json({
+      return res.status(400).json({
         success: false,
-        message: `Invalid log entries at indices: [${invalidLogs.join(", ")}]. Each log needs a valid mobileOfflineId, userId, volume > 0, and timestamp.`,
+        message: `Invalid entries at indices: [${invalidLogs.join(", ")}]. userId must be a string UUID.`,
       });
-      return;
     }
 
-    // --- Idempotent Batch Processing ---
+    // Process the batch (handles idempotency via mobileOfflineId)
     const processedCount = await processSyncBatch(body.logs);
 
     res.status(200).json({
       success: true,
       processedCount,
-      message:
-        processedCount > 0
-          ? `Successfully synced ${processedCount} new log(s).`
-          : "All logs were already synced (0 new entries).",
+      message: processedCount > 0
+        ? `Successfully synced ${processedCount} log(s).`
+        : "All logs were already synced.",
     });
   } catch (error: any) {
-    console.error("❌ Sync endpoint error:", error.message);
+    console.error("❌ Sync Error:", error.message);
     res.status(500).json({
       success: false,
-      message: "Internal server error. Logs were NOT processed. Please retry.",
+      message: "Internal server error. Please retry sync.",
     });
   }
 });
 
-import { db } from "./db/index";
-import { fuelLogs } from "./db/schema";
-import { eq, gte, sql, and } from "drizzle-orm";
-
-// ─── Analytics Endpoint ──────────────────────────────────────
-app.get("/api/stats/:userId", async (req, res) => {
+// ─── Analytics Endpoint (Fixed Overload Error) ──────────────
+app.get("/api/stats/:userId", authenticateToken, async (req, res) => {
   try {
-    const userId = parseInt(req.params.userId, 10);
-    if (isNaN(userId)) {
-      res.status(400).json({ success: false, message: "Invalid userId" });
-      return;
-    }
-
-    // IDOR guard: ensure authenticated user matches requested userId
+    // ✅ FIX: Force cast to string to prevent "string | string[]" overload errors
+    const userId = req.params.userId as string; 
     const authUser = (req as any).user;
-    if (!authUser || Number(authUser.sub) !== userId) {
-      res.status(403).json({ success: false, message: "Forbidden" });
-      return;
+
+    // Security: Only allow users to see their own stats
+    if (!authUser || authUser.sub !== userId) {
+      return res.status(403).json({ success: false, message: "Forbidden" });
     }
 
-    // Calculate time 24 hours ago
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    // Aggregate sum and count using Drizzle SQL operators
+    // Query fuelLogs for performance data
     const [stats] = await db
       .select({
         totalVolume: sql<number>`COALESCE(SUM(${fuelLogs.volumeDispensed}), 0)`,
@@ -112,8 +108,8 @@ app.get("/api/stats/:userId", async (req, res) => {
       .from(fuelLogs)
       .where(
         and(
-          eq(fuelLogs.userId, userId),
-          gte(fuelLogs.dispensedAt, twentyFourHoursAgo)
+          eq(fuelLogs.userId, userId), // Now correctly matches PgUUID string
+          eq(fuelLogs.syncStatus, "completed")
         )
       );
 
@@ -125,13 +121,14 @@ app.get("/api/stats/:userId", async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.error("❌ Stats endpoint error:", error.message);
-    res.status(500).json({ success: false, message: "Failed to fetch stats" });
+    console.error("❌ Stats Error:", error.message);
+    res.status(500).json({ success: false, message: "Failed to fetch driver stats" });
   }
 });
 
-
 // ─── Start Server ───────────────────────────────────────────
-app.listen(PORT, () => {
-  console.log(`🚀 SmartFuel server running on http://localhost:${PORT}`);
+// Listen on 0.0.0.0 to allow mobile devices on your network to connect
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`🚀 SmartFuel Server running on http://0.0.0.0:${PORT}`);
+  console.log(`📡 Use your machine's local IP for EXPO_PUBLIC_API_URL`);
 });
