@@ -61,16 +61,16 @@ Driver App (React Native)
 
 ## Core Technical Decisions
 
-- WAL-mode SQLite: standard SQLite locks during writes.
+- WAL-mode SQLite: Standard SQLite locks during writes.
   WAL allows concurrent reads and writes without blocking,
   critical for high-frequency BLE data logging every 100ms
 
-- Idempotent sync with UUID deduplication: every offline
+- Idempotent sync with UUID deduplication: Every offline
   event gets a UUID generated on-device before any network
   call; PostgreSQL uses onConflictDoNothing to guarantee
   zero double-billing regardless of retry count
 
-- Server-side HMAC-SHA256 payment verification: secret
+- Server-side HMAC-SHA256 payment verification: Secret
   never leaves the server; client sends payment ID,
   backend generates and verifies signature internally;
   architecturally identical to Razorpay webhook verification
