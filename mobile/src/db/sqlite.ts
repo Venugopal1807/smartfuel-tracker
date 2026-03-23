@@ -10,21 +10,25 @@ type QueueRecord = {
   created_at: string;
 };
 
+// ✅ FIXED: Changed userId to string to support UUIDs
 export type FuelLog = {
   id: number;
   mobileOfflineId: string;
-  userId: number;
+  userId: string; 
   volume: number;
-  lat: number;
-  lng: number;
+  latitude: number;
+  longitude: number;
   synced: number;
   timestamp: string;
+  status: string;
+  orderId?: string | null;
 };
 
 const DB_NAME = "smartfuel.db";
 const db = SQLite.openDatabaseSync(DB_NAME);
 
 // --- TABLE SCHEMAS ---
+
 const TABLE_SQL = `
 CREATE TABLE IF NOT EXISTS offline_queue (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,15 +48,15 @@ CREATE TABLE IF NOT EXISTS sync_events (
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );`;
 
-// FIX: Combined Schema. This handles both Dashboard and FuelEntry requirements.
+// ✅ FIXED: userId is now TEXT to hold UUID strings
 const LOCAL_LOGS_SQL = `
 CREATE TABLE IF NOT EXISTS local_fuel_logs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   mobileOfflineId TEXT UNIQUE,
-  userId INTEGER,
+  userId TEXT, 
   volume REAL,
-  lat REAL,
-  lng REAL,
+  latitude REAL,
+  longitude REAL,
   status TEXT,
   orderId TEXT,
   synced INTEGER DEFAULT 0,
@@ -70,6 +74,7 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 );`;
 
 // --- CORE FUNCTIONS ---
+
 const applyPragmas = async () => {
   await db.execAsync("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=3000;");
 };
@@ -93,34 +98,40 @@ const getAll = async <T = any>(sql: string, params: unknown[] = []): Promise<T[]
 };
 
 const genUuid = () => {
-  if (typeof Crypto.randomUUID === "function") return Crypto.randomUUID();
-  return "fallback-uuid-" + Date.now();
+  return Crypto.randomUUID();
 };
 
 export const initDB = async () => {
   await applyPragmas();
   
-  // FIX: Drop the corrupted table first
+  // NOTE: This drops the table to force the new 'TEXT' schema for userId.
+  // In a real app, you would use an ALTER TABLE migration instead.
   await db.execAsync("DROP TABLE IF EXISTS local_fuel_logs;");
   
-  // Create all tables
   await db.execAsync(TABLE_SQL);
   await db.execAsync(SYNC_EVENTS_SQL);
   await db.execAsync(LOCAL_LOGS_SQL);
   await db.execAsync(SYNC_QUEUE_SQL);
-  console.log("✅ Main SQLite Database initialized.");
+  console.log("✅ Main SQLite Database initialized with UUID support.");
 };
 
-// --- FUEL LOG FUNCTIONS (Migrated from database/db.ts) ---
+// --- FUEL LOG FUNCTIONS ---
 
-export const saveFuelLog = (volume: number, lat: number, lng: number, userId: number, orderId?: string): void => {
+// ✅ FIXED: userId parameter type is now string
+export const saveFuelLog = (
+  volume: number, 
+  latitude: number, 
+  longitude: number, 
+  userId: string, 
+  orderId?: string
+): void => {
   const mobileOfflineId = Crypto.randomUUID();
   const timestamp = new Date().toISOString();
   try {
     const statement = db.prepareSync(
-      'INSERT INTO local_fuel_logs (mobileOfflineId, userId, volume, lat, lng, synced, timestamp, orderId, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)'
+      'INSERT INTO local_fuel_logs (mobileOfflineId, userId, volume, latitude, longitude, synced, timestamp, orderId, status) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)'
     );
-    statement.executeSync([mobileOfflineId, userId, volume, lat, lng, 0, timestamp, orderId || null, "PENDING"]);
+    statement.executeSync([mobileOfflineId, userId, volume, latitude, longitude, 0, timestamp, orderId || null, "PENDING"]);
     console.log(`✅ Fuel log saved locally! ID: ${mobileOfflineId}`);
   } catch (error) {
     console.error('❌ Failed to save fuel log locally:', error);
@@ -129,13 +140,19 @@ export const saveFuelLog = (volume: number, lat: number, lng: number, userId: nu
 };
 
 export const getLogs = (): FuelLog[] => {
-  try { return db.getAllSync<FuelLog>('SELECT * FROM local_fuel_logs ORDER BY timestamp DESC'); } 
-  catch (error) { return []; }
+  try { 
+    return db.getAllSync<FuelLog>('SELECT * FROM local_fuel_logs ORDER BY timestamp DESC'); 
+  } catch (error) { 
+    return []; 
+  }
 };
 
 export const getUnsyncedLogs = (): FuelLog[] => {
-  try { return db.getAllSync<FuelLog>('SELECT * FROM local_fuel_logs WHERE synced = 0 ORDER BY timestamp ASC'); } 
-  catch (error) { return []; }
+  try { 
+    return db.getAllSync<FuelLog>('SELECT * FROM local_fuel_logs WHERE synced = 0 ORDER BY timestamp ASC'); 
+  } catch (error) { 
+    return []; 
+  }
 };
 
 export const markLogAsSynced = (mobileOfflineId: string): void => {
@@ -148,6 +165,7 @@ export const markLogAsSynced = (mobileOfflineId: string): void => {
 };
 
 // --- SYNC QUEUE FUNCTIONS ---
+
 export const enqueueAction = async (type: string, payload: unknown) => {
   const uuid = genUuid();
   const payloadStr = JSON.stringify(payload ?? {});
@@ -163,7 +181,7 @@ export const markAsSyncedQueue = async (uuid: string) => {
   await run(`UPDATE offline_queue SET status = 'SYNCED' WHERE uuid = ?`, [uuid]);
 };
 
-// --- SYNC EVENTS (Missing Functions Restored) ---
+// --- SYNC EVENTS ---
 
 export const enqueueSyncEvent = async (type: string, payload: unknown) => {
   let payloadStr = "{}";
