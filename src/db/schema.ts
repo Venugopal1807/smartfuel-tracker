@@ -13,7 +13,15 @@ import { relations } from "drizzle-orm";
 
 // Enums
 export const kycStatusEnum = ["pending", "verified", "rejected"] as const;
-export const orderStatusEnum = ["pending", "confirmed", "accepted", "in_transit", "delivered"] as const;
+export const orderStatusEnum = [
+  "pending", 
+  "confirmed", 
+  "accepted", 
+  "in_transit", 
+  "delivered", 
+  "payment_pending", // Added for offline fallback
+  "paid"             // Added for successful settlement
+] as const;
 
 // Organizations
 export const organizations = pgTable("organizations", {
@@ -77,13 +85,40 @@ export const orders = pgTable("orders", {
   customerPhone: text("customer_phone"),
   customerAddress: text("customer_address"),
   customerArea: text("customer_area"),
+  
+  // OTPs
   securityOrderOtp: text("order_otp"),
   securityCloseOtp: text("close_otp"),
   securityBypassOtp: text("bypass_otp"),
+  
+  // Measurement
   measurementPresetType: text("preset_type"),
   measurementQuantity: numeric("quantity", { precision: 10, scale: 2 }),
   measurementFinalVolume: numeric("final_volume_dispersed", { precision: 10, scale: 2 }),
+  
+  // --- NEW SETTLEMENT & COMPLIANCE FIELDS ---
+  pgOrderId: text("pg_order_id"),        // Mocked reference ID
+  pgPaymentId: text("pg_payment_id"),    // Mocked transaction ID
+  otpHash: text("otp_hash"),             // For offline verification proof
+  paymentInitiatedAt: timestamp("payment_initiated_at"),
+  paidAt: timestamp("paid_at"),
+  pendingSince: timestamp("pending_since"),
+  // -------------------------------------------
+
   scheduledDate: timestamp("scheduled_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Fuel Logs (Dedicated table for Offline Sync Events)
+export const fuelLogs = pgTable("fuel_logs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  mobileOfflineId: text("mobile_offline_id").notNull().unique(), // CRITICAL: For idempotency
+  userId: uuid("user_id").references(() => drivers.id),
+  volumeDispensed: numeric("volume_dispensed", { precision: 10, scale: 2 }),
+  locationLat: numeric("location_lat", { precision: 10, scale: 7 }),
+  locationLng: numeric("location_lng", { precision: 10, scale: 7 }),
+  syncStatus: text("sync_status").default("completed"),
+  dispensedAt: timestamp("dispensed_at"),
   createdAt: timestamp("created_at").defaultNow(),
 });
 
@@ -92,10 +127,19 @@ export const transactions = pgTable("transactions", {
   id: uuid("id").primaryKey().defaultRandom(),
   orderId: uuid("order_id").references(() => orders.id),
   pumpId: text("pump_id").references(() => pumps.id),
-  volumeDispensed: numeric("volume_dispensed", { precision: 10, scale: 2 }),
+  
+  // Financial Data
   amount: numeric("amount", { precision: 12, scale: 2 }),
-  razorpayOrderId: text("razorpay_order_id"),
-  status: text("status").notNull().default("PENDING"),
+  volumeDispensed: numeric("volume_dispensed", { precision: 10, scale: 2 }),
+  
+  // Settlement IDs (Generic names so they work for Internal OR Razorpay later)
+  pgOrderId: text("pg_order_id"),   // Renamed from razorpay_order_id
+  pgPaymentId: text("pg_payment_id"),
+  pgSignature: text("pg_signature"), // For the HMAC verification
+  
+  status: text("status").notNull().default("PENDING"), // PENDING, PAID, FAILED
+  createdAt: timestamp("created_at").defaultNow(),
+  paidAt: timestamp("paid_at"),
 });
 
 // MDU Controllers
@@ -156,4 +200,13 @@ export const mduControllersRelations = relations(mduControllers, ({ one }) => ({
 
 export const bankDocumentsRelations = relations(bankDocuments, ({ one }) => ({
   driver: one(drivers, { fields: [bankDocuments.driverId], references: [drivers.id] }),
+}));
+
+
+// 1. Add this new relation block
+export const orgAddressesRelations = relations(orgAddresses, ({ one }) => ({
+  organization: one(organizations, {
+    fields: [orgAddresses.orgId],
+    references: [organizations.id],
+  }),
 }));
