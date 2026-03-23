@@ -2,8 +2,10 @@
   "name": "smartfuel-tracker",
   "version": "1.0.0",
   "description": "SmartFuel Tracker - Offline-first fleet fuel logistics backend",
-  "main": "index.js",
+  "main": "dist/server.js",
   "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
     "dev": "tsx watch src/server.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
@@ -11,7 +13,7 @@
     "test": "jest"
   },
   "keywords": [],
-  "author": "",
+  "author": "venugopal",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
@@ -22,9 +24,7 @@
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.20.0",
-    "react-native-ble-plx": "^3.5.1",
-    "zustand": "^5.0.12"
+    "pg": "^8.20.0"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

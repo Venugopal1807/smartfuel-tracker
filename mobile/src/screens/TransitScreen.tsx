@@ -1,32 +1,32 @@
 import React from "react";
-import { 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  StyleSheet, 
-  Dimensions, 
-  ActivityIndicator 
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  ActivityIndicator
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { 
-  ChevronLeft, 
-  CheckCircle2, 
-  Target, 
-  Truck, 
-  MapPin, 
-  AlertCircle 
+import {
+  ChevronLeft,
+  CheckCircle2,
+  Target,
+  Truck,
+  MapPin,
+  AlertCircle
 } from "lucide-react-native";
 import MapView, { UrlTile, Marker, Polyline } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // ✅ Import the global store to get the active order
-import { useFuelStore } from "../store/useFuelStore"; 
+import { useFuelStore } from "../store/useFuelStore";
 
 const { height } = Dimensions.get("window");
 
 export default function TransitScreen() {
   const navigation = useNavigation<any>();
-  
+
   // ✅ Grab the order directly from global state
   // This ensures the data is there even if navigated via the Tab Bar
   const { activeOrder: order } = useFuelStore();
@@ -44,7 +44,7 @@ export default function TransitScreen() {
         <AlertCircle size={48} color="#9CA3AF" />
         <Text style={styles.emptyTitle}>No Active Delivery</Text>
         <Text style={styles.emptySub}>Please select an assigned task from the Dashboard to start your journey.</Text>
-        <TouchableOpacity 
+        <TouchableOpacity
           onPress={() => navigation.navigate("Dashboard")}
           style={styles.backToDashBtn}
         >
@@ -62,44 +62,56 @@ export default function TransitScreen() {
 
   return (
     <View style={styles.container}>
-      
+
       {/* --- MAP SECTION --- */}
       <View style={styles.mapContainer}>
-        <MapView
-          style={StyleSheet.absoluteFillObject}
-          initialRegion={{
-            latitude: (driverLoc.latitude + destLoc.latitude) / 2,
-            longitude: (driverLoc.longitude + destLoc.longitude) / 2,
-            latitudeDelta: 0.1,
-            longitudeDelta: 0.1,
-          }}
-        >
-          <UrlTile
-            urlTemplate="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-            maximumZ={19}
-            flipY={false}
-          />
-          
-          <Marker coordinate={driverLoc} title={"Your Truck"}>
-            <View style={styles.truckMarker}>
-               <Truck size={18} color="#fff" />
-            </View>
-          </Marker>
+        {/* --- MOCK MAP SECTION (No API Key Required) --- */}
+        <View style={[styles.mapContainer, { backgroundColor: '#F3F4F6', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' }]}>
 
-          <Marker coordinate={destLoc} title={order.customer_name || "Client"}>
-            <View style={styles.destMarker}>
-               <MapPin size={18} color="#fff" />
+          {/* 1. Visual Background Grid (Mimics Map Tiles) */}
+          <View style={StyleSheet.absoluteFillObject}>
+            <View style={{ flex: 1, opacity: 0.05, flexDirection: 'row' }}>
+              {[...Array(10)].map((_, i) => <View key={i} style={{ width: 1, backgroundColor: '#000', height: '100%', marginLeft: 50 }} />)}
             </View>
-          </Marker>
+            <View style={[StyleSheet.absoluteFillObject, { opacity: 0.05 }]}>
+              {[...Array(10)].map((_, i) => <View key={i} style={{ height: 1, backgroundColor: '#000', width: '100%', marginTop: 50 }} />)}
+            </View>
+          </View>
 
-          <Polyline
-            coordinates={[driverLoc, destLoc]}
-            strokeColor="#2563EB"
-            strokeWidth={4}
-            lineDashPattern={[5, 5]}
-          />
-        </MapView>
-        
+          {/* 2. Mock Path Line (The Polyline replacement) */}
+          <View style={{
+            position: 'absolute',
+            width: 200,
+            height: 2,
+            backgroundColor: '#2563EB',
+            transform: [{ rotate: '-45deg' }],
+            opacity: 0.3,
+            borderStyle: 'dashed',
+            borderRadius: 1,
+          }} />
+
+          {/* 3. Visual Markers */}
+          {/* Driver/Truck Position */}
+          <View style={[styles.truckMarker, { position: 'absolute', top: '60%', left: '30%' }]}>
+            <Truck size={18} color="#fff" />
+          </View>
+
+          {/* Destination Position */}
+          <View style={[styles.destMarker, { position: 'absolute', top: '30%', left: '70%' }]}>
+            <MapPin size={18} color="#fff" />
+          </View>
+
+          {/* 4. Overlay Label */}
+          <View style={{ position: 'absolute', bottom: 50, backgroundColor: 'rgba(255,255,255,0.8)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 20 }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: '#6B7280' }}>MAP PREVIEW MODE (NO API)</Text>
+          </View>
+
+          {/* 5. Keep your existing Back Button */}
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <ChevronLeft size={24} color="#111827" />
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ChevronLeft size={24} color="#111827" />
         </TouchableOpacity>
@@ -108,7 +120,7 @@ export default function TransitScreen() {
       {/* --- INTERACTIVE INFO SHEET --- */}
       <View style={styles.sheet}>
         <View style={styles.dragHandle} />
-        
+
         <View style={styles.sheetHeader}>
           <View>
             <Text style={styles.statusLabel}>CURRENT STATUS</Text>
@@ -129,7 +141,7 @@ export default function TransitScreen() {
             </View>
           </View>
           <View style={styles.verticalLineActive} />
-          
+
           <View style={styles.timelineItem}>
             <Target size={18} color="#2563EB" />
             <View style={styles.timelineTextGroup}>
@@ -156,7 +168,7 @@ export default function TransitScreen() {
           </View>
         </View>
 
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.arriveBtn}
           onPress={() => navigation.navigate("Security", { order })}
         >
