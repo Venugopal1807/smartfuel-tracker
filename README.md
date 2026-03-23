@@ -1,41 +1,158 @@
-# SmartFuel Tracker — Production-Ready Offline Fuel Logistics
+# SmartFuel Tracker
 
-## 1) The Problem Statement
-High-intensity fuel logistics for mining and rural sites can’t rely on a “constantly connected” network. Drivers must dispense fuel, capture proofs, and settle payments while offline, then sync safely when real connectivity returns.
+Offline-First BLE Fuel Delivery Platform — built on real
+production patterns
 
-## 2) Core Architectural Pillars
-- **Offline-First Persistence**  
-  - Local queue on SQLite with WAL mode + busy timeout to avoid locks.  
-  - Heartbeat Ping (GET /api/health) replaces flaky NetInfo listeners to confirm real reachability before draining queues (payments/profile sync).
-- **Hybrid Hardware Layer**  
-  - BLE scanning with a 5s real scan → automatic MDU_NOT_FOUND_FALLBACK → simulated MDU_772, enabling hardware-agnostic demos without blocking flows.
-- **Cryptographic Security**  
-  - Server-side HMAC-SHA256 handshake for payment verification (simulated Razorpay/Stripe).  
-  - Clients never hold secrets; verification happens in Node with deterministic signatures.
-- **B2B Document Engine**  
-  - On-device HTML→PDF via Expo Print + Sharing, generating branded Proof of Delivery instantly (invoice/receipt, transaction ID, “Digitally Verified” badge).
+![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
+![Backend](https://img.shields.io/badge/API-Live%20on%20Railway-blue)
+![Stack](https://img.shields.io/badge/Stack-React%20Native%20%7C%20Node.js%20%7C%20PostgreSQL-orange)
 
-## 3) Technical Stack
-- **Frontend:** React Native (Expo), React Navigation, SQLite (offline queue), BLE stubs, MapView, HTML→PDF (expo-print/expo-sharing).  
-- **Backend:** Node.js, Express, PostgreSQL, Drizzle ORM.  
-- **Security:** JWT auth, bcrypt PIN hashing, HMAC-SHA256 payment verification, Crypto random IDs.
+---
 
-## 4) Database Schema (Zapygo-grade, multi-tenant)
-- Organizations → Pumps → Vehicles → Drivers.  
-- Orders link to org + address + driver + vehicle + pump; track customer details, OTPs, measurement (preset/final volume).  
-- Transactions store PG order/payment status; Sync Events table for idempotent retries; Bank Documents keyed by driver for payouts.
+## Live
 
-## 5) How to Run
-```bash
-# Backend
-npm install
-npx drizzle-kit push        # apply Postgres schema
-npm run seed                # populate org/pump/vehicle/driver/orders
-npm run dev                 # start API
+- API: https://smartfuel-tracker-production.up.railway.app
+- Health Check: https://smartfuel-tracker-production.up.railway.app/api/health
+- GitHub: https://github.com/Venugopal1807/smartfuel-tracker
+- Demo Video: *(Recording in progress)*
+- APK: *(EAS build in progress)*
 
-# Mobile (from /mobile)
-npm install
-npm start                   # expo start
+---
+
+## The Problem
+
+Fuel delivery drivers in India operate in remote mining
+sites and rural areas where network coverage drops for
+hours at a time. Existing solutions stop working offline -
+drivers cannot log deliveries, capture proof, or
+process payments.
+
+SmartFuel Tracker treats offline as the default state,
+not an edge case.
+
+---
+
+## System Architecture
+
+The complete driver workflow moves through six stages,
+each designed to work with or without network connectivity:
+```
+Driver App (React Native)
+    │
+    ├── Auth (JWT + bcrypt PIN)
+    ├── Orders (accept/reject lifecycle)
+    ├── BLE (5s real scan → MDU fallback)
+    ├── Dispense (live meter, OTP verification)
+    ├── Payment (HMAC handshake → offline queue)
+    └── Invoice (on-device PDF → share sheet)
+           │
+           │ Online: direct API calls
+           │ Offline: SQLite WAL queue
+           ▼
+    Node.js + Express (Railway)
+    /api/auth  /api/orders  /api/payments  /api/health
+           │
+           ▼
+    PostgreSQL (Railway Managed)
+    Organizations → Pumps → Vehicles
+    → Drivers → Orders → Transactions → Sync Events
 ```
 
-Senior-engineer choices: offline-first queue with heartbeat validation, hardware bypass for demo safety, server-only HMAC verification, and instant PDF proof ensure the app is resilient in no-signal zones while meeting enterprise audit trails. The stack, schema, and flows are production-grade and tuned for 15 LPA+ expectations.
+---
+
+## Core Technical Decisions
+
+- WAL-mode SQLite - standard SQLite locks during writes.
+  WAL allows concurrent reads and writes without blocking,
+  critical for high-frequency BLE data logging every 100ms
+
+- Idempotent sync with UUID deduplication — every offline
+  event gets a UUID generated on-device before any network
+  call; PostgreSQL uses onConflictDoNothing to guarantee
+  zero double-billing regardless of retry count
+
+- Server-side HMAC-SHA256 payment verification — secret
+  never leaves the server; client sends payment ID,
+  backend generates and verifies signature internally;
+  architecturally identical to Razorpay webhook verification
+
+- BLE hybrid scan with intelligent fallback — 5-second
+  real scan for MDU controllers; automatic fallback to
+  simulated device ensures the complete driver workflow
+  is always demo-able without physical hardware
+
+- Heartbeat ping instead of NetInfo — NetInfo reports
+  "connected" even when the router has no internet;
+  the sync worker pings GET /api/health and only drains
+  the queue on a genuine 200 response
+
+---
+
+## Known Limitations
+
+- BLE uses simulated MDU hardware for demo — real
+  Relcon MDU testing requires physical device with
+  Modbus protocol support
+- Payment uses internal HMAC verification — production
+  deployment replaces mock payment ID with Razorpay SDK;
+  backend architecture is identical
+- History UI display is in progress — data layer
+  complete, presentation layer pending
+- Offline sync stress testing in progress — happy path
+  works, edge case handling under refinement
+
+---
+
+## How to Run Locally
+```bash
+# Backend
+cd server
+npm install
+cp .env.example .env     # add DATABASE_URL and JWT_SECRET
+npx drizzle-kit push     # apply PostgreSQL schema
+npm run seed             # creates org, pump, vehicle,
+                         # driver, and 3 test orders
+npm run dev              # starts on port 3000
+
+# Mobile
+cd mobile
+npm install
+# set EXPO_PUBLIC_API_URL in .env to your backend URL
+npx expo start           # scan QR with Expo Go
+                         # BLE requires development build:
+                         # eas build --platform android
+                         #           --profile development
+```
+
+---
+
+## Test Credentials (Post-Seed)
+
+- Driver login — Phone: `9999999999` | PIN: `1234`
+- Organisation — Apollo Logistics
+- Orders — 1 pending, 1 accepted, 1 delivered
+
+---
+
+## Technical Stack
+
+- Mobile — React Native, Expo, TypeScript, SQLite,
+  react-native-ble-plx, react-native-maps,
+  expo-print, expo-sharing, Zustand
+- Backend — Node.js, Express, TypeScript,
+  Drizzle ORM, PostgreSQL
+- Security — JWT, bcrypt PIN hashing,
+  HMAC-SHA256, crypto random IDs
+- Deployment — Railway (backend + database),
+  Expo EAS (mobile builds)
+
+---
+
+## About
+
+Venu Gopal Kunchepu — Full Stack and Mobile Developer,
+Hyderabad
+
+- Portfolio: https://venugopalk.netlify.app
+- LinkedIn: https://linkedin.com/in/venugopal-kunchepu
+- Email: kunchepu.venugopal@gmail.com
