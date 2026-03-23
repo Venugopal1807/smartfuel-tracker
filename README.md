@@ -1,7 +1,6 @@
 # SmartFuel Tracker
 
-Offline-First BLE Fuel Delivery Platform — built on real
-production patterns
+Offline-First BLE Fuel Delivery Platform
 
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
 ![Backend](https://img.shields.io/badge/API-Live%20on%20Railway-blue)
@@ -62,26 +61,26 @@ Driver App (React Native)
 
 ## Core Technical Decisions
 
-- WAL-mode SQLite - standard SQLite locks during writes.
+- WAL-mode SQLite: standard SQLite locks during writes.
   WAL allows concurrent reads and writes without blocking,
   critical for high-frequency BLE data logging every 100ms
 
-- Idempotent sync with UUID deduplication — every offline
+- Idempotent sync with UUID deduplication: every offline
   event gets a UUID generated on-device before any network
   call; PostgreSQL uses onConflictDoNothing to guarantee
   zero double-billing regardless of retry count
 
-- Server-side HMAC-SHA256 payment verification — secret
+- Server-side HMAC-SHA256 payment verification: secret
   never leaves the server; client sends payment ID,
   backend generates and verifies signature internally;
   architecturally identical to Razorpay webhook verification
 
-- BLE hybrid scan with intelligent fallback — 5-second
+- BLE hybrid scan with intelligent fallback: 5-second
   real scan for MDU controllers; automatic fallback to
   simulated device ensures the complete driver workflow
   is always demo-able without physical hardware
 
-- Heartbeat ping instead of NetInfo — NetInfo reports
+- Heartbeat ping instead of NetInfo: NetInfo reports
   "connected" even when the router has no internet;
   the sync worker pings GET /api/health and only drains
   the queue on a genuine 200 response
@@ -90,15 +89,15 @@ Driver App (React Native)
 
 ## Known Limitations
 
-- BLE uses simulated MDU hardware for demo — real
+- BLE uses simulated MDU hardware for demo: Real
   Relcon MDU testing requires physical device with
   Modbus protocol support
-- Payment uses internal HMAC verification — production
+- Payment uses internal HMAC verification: Production
   deployment replaces mock payment ID with Razorpay SDK;
   backend architecture is identical
-- History UI display is in progress — data layer
+- History UI display is in progress: Data layer
   complete, presentation layer pending
-- Offline sync stress testing in progress — happy path
+- Offline sync stress testing in progress: Happy path
   works, edge case handling under refinement
 
 ---
@@ -128,29 +127,29 @@ npx expo start           # scan QR with Expo Go
 
 ## Test Credentials (Post-Seed)
 
-- Driver login — Phone: `9999999999` | PIN: `1234`
-- Organisation — Apollo Logistics
-- Orders — 1 pending, 1 accepted, 1 delivered
+- Driver login: Phone: `9999999999` | PIN: `1234`
+- Organisation: Apollo Logistics
+- Orders: 1 pending, 1 accepted, 1 delivered
 
 ---
 
 ## Technical Stack
 
-- Mobile — React Native, Expo, TypeScript, SQLite,
+- Mobile: React Native, Expo, TypeScript, SQLite,
   react-native-ble-plx, react-native-maps,
   expo-print, expo-sharing, Zustand
-- Backend — Node.js, Express, TypeScript,
+- Backend: Node.js, Express, TypeScript,
   Drizzle ORM, PostgreSQL
-- Security — JWT, bcrypt PIN hashing,
+- Security: JWT, bcrypt PIN hashing,
   HMAC-SHA256, crypto random IDs
-- Deployment — Railway (backend + database),
+- Deployment: Railway (backend + database),
   Expo EAS (mobile builds)
 
 ---
 
 ## About
 
-Venu Gopal Kunchepu — Full Stack and Mobile Developer,
+Venu Gopal Kunchepu - Full Stack and Mobile Developer,
 Hyderabad
 
 - Portfolio: https://venugopalk.netlify.app
