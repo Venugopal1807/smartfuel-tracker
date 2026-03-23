@@ -29,7 +29,8 @@
     },
     "plugins": [
       "expo-sqlite",
-      "expo-sharing"
+      "expo-sharing",
+      "react-native-ble-plx"
     ]
   }
 }
