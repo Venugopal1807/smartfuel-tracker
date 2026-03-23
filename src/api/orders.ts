@@ -1,17 +1,18 @@
 import express from "express";
 import { db } from "../db";
 import { orders, vehicles } from "../db/schema";
-import { eq, and } from "drizzle-orm";
-import { authenticateToken } from "../middleware/auth"; // ✅ Added Auth
+import { eq } from "drizzle-orm";
+import { authenticateToken } from "../middleware/auth";
 
 const router = express.Router();
+
+// Helper to generate a 4-digit numeric string
+const generateOtp = () => Math.floor(1000 + Math.random() * 9000).toString();
 
 // ─── 1. FETCH ORDERS ────────────────────────────────────────────────
 router.get("/", authenticateToken, async (req, res) => {
   try {
     const status = req.query.status as string;
-
-    // Filter by status if provided, and ensure only relevant orders are shown
     const query = status 
       ? db.select().from(orders).where(eq(orders.status, status as any)) 
       : db.select().from(orders);
@@ -23,7 +24,7 @@ router.get("/", authenticateToken, async (req, res) => {
   }
 });
 
-// ─── 2. ACCEPT ORDER ───────────────────────────────────────────────
+// ─── 2. ACCEPT ORDER (Generates OTPs) ───────────────────────────────
 router.patch("/:id/accept", authenticateToken, async (req, res) => {
   try {
     const orderId = req.params.id;
@@ -33,24 +34,29 @@ router.patch("/:id/accept", authenticateToken, async (req, res) => {
       return res.status(400).json({ success: false, message: "driverId is required" });
     }
 
-    // Create a demo vehicle for the assignment
+    // A. Generate random OTPs for the security handshake
+    const startOtp = generateOtp(); // For SecurityCheckScreen
+    const endOtp = generateOtp();   // For DispensingScreen/Payment
+
+    // B. Create a demo vehicle
     const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const reg = `TS-${letters[Math.floor(Math.random() * 26)]}${letters[Math.floor(Math.random() * 26)]}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const [vehicle] = await db
-      .insert(vehicles)
-      .values({ 
-        registrationNumber: reg, 
-        status: "AVAILABLE" 
-      })
-      .returning();
+    const [vehicle] = await db.insert(vehicles).values({ 
+      registrationNumber: reg, 
+      status: "AVAILABLE" 
+    }).returning();
 
+    // C. Update Order with OTPs and Driver info
     const updated = await db
       .update(orders)
       .set({ 
         driverId: driverId as any, 
         vehicleId: vehicle.id, 
-        status: "accepted" 
+        status: "accepted",
+        // ✅ NEW: Save OTPs to the database
+        securityOrderOtp: startOtp,
+        securityCloseOtp: endOtp
       })
       .where(eq(orders.id, orderId as any))
       .returning();
@@ -59,9 +65,18 @@ router.patch("/:id/accept", authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: "Order not found" });
     }
 
+    console.log(`[Flow] Order ${orderId} accepted. Start OTP: ${startOtp}, End OTP: ${endOtp}`);
+
     res.json({ 
       success: true, 
-      data: { ...updated[0], vehicleRegistration: vehicle.registrationNumber } 
+      data: { 
+        ...updated[0], 
+        vehicleRegistration: vehicle.registrationNumber,
+        // Optional: Send OTPs back to driver if your flow allows it
+        // Usually, the customer gets these, but for testing we can send them here
+        debug_start_otp: startOtp,
+        debug_end_otp: endOtp
+      } 
     });
   } catch (err: any) {
     console.error("Accept error:", err);
@@ -101,19 +116,15 @@ router.patch("/:id/complete", authenticateToken, async (req, res) => {
       .update(orders)
       .set({ 
         status: "delivered", 
-        // ✅ CRITICAL: Convert volume to string for numeric column safety
         measurementFinalVolume: final_volume.toString() 
       })
       .where(eq(orders.id, orderId as any))
       .returning();
 
-    if (!updated.length) {
-      return res.status(404).json({ success: false, message: "Order not found" });
-    }
+    if (!updated.length) return res.status(404).json({ success: false, message: "Order not found" });
 
     res.json({ success: true, data: updated[0] });
   } catch (err: any) {
-    console.error("Complete error:", err);
     res.status(500).json({ success: false, message: "Failed to complete delivery" });
   }
 });

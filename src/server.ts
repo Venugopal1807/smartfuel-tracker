@@ -26,6 +26,24 @@ app.use((req, res, next) => {
   next();
 });
 
+// ─── 🚩 ROOT LANDING PAGE (For Recruiters/Railway) ──────────
+// This ensures that clicking your live Railway link shows a professional status
+app.get("/", (req, res) => {
+  res.status(200).json({
+    project: "SmartFuel Tracker API",
+    version: "1.0.0",
+    status: "Live & Healthy",
+    author: "venugopal",
+    documentation: "Build in Progress",
+    endpoints: {
+      auth: "/api/auth",
+      orders: "/api/orders",
+      payments: "/api/payments",
+      health: "/api/health"
+    }
+  });
+});
+
 // ─── API Routes ─────────────────────────────────────────────
 app.use("/api/auth", authRouter);
 app.use("/api/orders", ordersRouter);
@@ -127,8 +145,8 @@ app.get("/api/stats/:userId", authenticateToken, async (req, res) => {
 });
 
 // ─── Start Server ───────────────────────────────────────────
-// Listen on 0.0.0.0 to allow mobile devices on your network to connect
+// Listen on 0.0.0.0 to allow Railway (and local mobile devices) to connect
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`🚀 SmartFuel Server running on http://0.0.0.0:${PORT}`);
-  console.log(`📡 Use your machine's local IP for EXPO_PUBLIC_API_URL`);
+  console.log(`🚀 SmartFuel Server running on PORT ${PORT}`);
+  console.log(`📡 Use your machine's local IP for mobile dev testing`);
 });
