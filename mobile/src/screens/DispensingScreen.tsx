@@ -1,97 +1,169 @@
-import React, { useMemo, useRef, useState, useEffect } from "react";
-import { View, Text, TouchableOpacity, Alert, TextInput, StyleSheet, SafeAreaView, ScrollView, Platform } from "react-native";
-import { enqueueAction } from "../db/sqlite";
+import React, { useState, useEffect, useRef } from "react";
+import { 
+  View, Text, TouchableOpacity, Alert, TextInput, 
+  StyleSheet, ScrollView, Platform, ActivityIndicator, SafeAreaView 
+} from "react-native";
+import { Info, Truck } from "lucide-react-native";
 import axios from "axios";
-import { processPayment } from "../services/paymentService";
-import { Info, CheckCircle2 } from "lucide-react-native";
-import * as Crypto from 'expo-crypto'; // <-- Added for secure OTP hashing
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as Crypto from 'expo-crypto';
+import * as Location from 'expo-location'; 
 
-const RATE = 214; 
+// Internal Logic & Services
+import { useFuelStore } from "../store/useFuelStore";
+import useBLE from "../hooks/useBLE";
+import { buildCompleteOrderCmd, buildStatusCmd } from "../services/bleCommands";
+import { saveFuelLog, enqueueAction } from "../db/sqlite";
+import { processPayment } from "../services/paymentService";
+import { useKeepAwake, activateKeepAwake, deactivateKeepAwake } from 'expo-keep-awake';
+
+const RATE = 108; // Fuel Rate per Liter
 
 export default function DispensingScreen({ route, navigation }: any) {
-  const orderId = route.params?.orderId || "demo-order";
+  // 1. Extract Order Data
+  const order = route.params?.order || null;
+  const orderId = order?.id || "demo-order";
   
-  const [volume, setVolume] = useState(0);
-  const [running, setRunning] = useState(false);
+  // 2. BLE & Hardware State
+  const { volume, amount, isDispensing, reset } = useFuelStore();
+  const { sendCommand, bleState, disconnect, connectedDevice } = useBLE();
+
+  // 3. Local Component State
   const [dispenseComplete, setDispenseComplete] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [processingPayment, setProcessingPayment] = useState(false);
-  
-  const amount = useMemo(() => Math.round(volume * RATE), [volume]);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [location, setLocation] = useState<Location.LocationObject | null>(null);
+  const [userId, setUserId] = useState<string>("");
+  const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
-  const startDispensing = () => {
-    setRunning(true);
-    intervalRef.current = setInterval(() => {
-      setVolume((v) => Number((v + 1.28).toFixed(2))); 
-    }, 100);
-  };
+  // --- INITIALIZATION (Auth & GPS) ---
+  useEffect(() => {
+    (async () => {
+      // Fetch the Driver ID for logging
+      const storedUser = await AsyncStorage.getItem("user_profile");
+      if (storedUser) {
+        const userObj = JSON.parse(storedUser);
+        setUserId(String(userObj.id)); // Ensures it's a string for ts(2345)
+      }
 
-  const stopDispensing = async () => {
-    setRunning(false);
+      // Get GPS for the audit trail
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status === 'granted') {
+        let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        setLocation(loc);
+      }
+    })();
+  }, []);
+
+  // --- HARDWARE POLLING ---
+  useEffect(() => {
+    // If Bluetooth is connected, poll the pump for volume/status every second
+    if (bleState === "READY") {
+      pollingInterval.current = setInterval(() => {
+        sendCommand(buildStatusCmd());
+      }, 1000);
+    }
+
+    return () => {
+      if (pollingInterval.current) clearInterval(pollingInterval.current);
+    };
+  }, [bleState]);
+
+  // If the pump hardware stops, transition to the payment UI
+  useEffect(() => {
+    if (parseFloat(volume) > 0 && !isDispensing) {
+      setDispenseComplete(true);
+    }
+  }, [isDispensing]);
+
+  // --- ACTION HANDLERS ---
+
+  const handleStopDispensing = async () => {
+    // Manually stopping the flow
+    if (pollingInterval.current) clearInterval(pollingInterval.current);
     setDispenseComplete(true);
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-    
+
     try {
-      await enqueueAction("DISPENSE_FUEL", { volume, amount, timestamp: new Date().toISOString() });
-    } catch (err) {
-      console.error("Failed to enqueue dispense event", err);
+      const lat = location?.coords.latitude || 0;
+      const lng = location?.coords.longitude || 0;
+
+      // Save the final volume to local SQLite
+      saveFuelLog(
+        parseFloat(volume), 
+        lat, 
+        lng, 
+        userId, 
+        orderId
+      );
+    } catch (error) {
+      console.error("Local Log Error:", error);
     }
   };
 
-  // --- THE FIXED PAYMENT LOGIC ---
   const handleVerifyAndPay = async () => {
     if (otpInput.length !== 4) {
-      Alert.alert("Error", "Please enter a 4-digit End OTP.");
+      Alert.alert("Error", "Please enter the 4-digit End OTP.");
       return;
     }
+    
     setProcessingPayment(true);
     
     try {
-      // 1. Online Flow: Try backend API and custom payment bridge
-      await axios.patch(`${process.env.EXPO_PUBLIC_API_URL}/api/orders/${orderId}/complete`, { final_volume: volume });
-      await processPayment(amount, orderId, otpInput); 
+      // A. Close the transaction on the Pump Hardware via BLE
+      const cmdBytes = buildCompleteOrderCmd(orderId, otpInput);
+      const pumpAccepted = await sendCommand(cmdBytes);
       
-      Alert.alert("Success", "Delivery verified and complete!", [
-        { text: "Finish", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Main' }] }) }
+      if (!pumpAccepted) {
+        Alert.alert("Hardware Error", "Pump nozzle was not locked. Please retry OTP.");
+        setProcessingPayment(false);
+        return;
+      }
+
+      // B. Settlement (Online Flow)
+      await processPayment(
+        parseFloat(amount), 
+        orderId, 
+        otpInput, 
+        parseFloat(volume), 
+        connectedDevice?.name || "MDU-001"
+      );
+
+      // C. Cleanup
+      await AsyncStorage.removeItem("active_order");
+      disconnect();
+      reset();
+
+      Alert.alert("Success", "Delivery complete and verified!", [
+        { 
+          text: "View Receipt", 
+          onPress: () => navigation.replace("ReceiptScreen", { order, volume, rate: RATE }) 
+        }
       ]);
 
     } catch (err: any) {
-      // 2. Distinguish Network Errors from Server/Auth Errors
-      // Axios sets !err.response when it cannot reach the server at all
-      const isNetworkError = !err.response || err.message === 'Network Error' || err.code === 'ECONNABORTED';
-
+      // D. Offline Fallback for Poor Network
+      const isNetworkError = !err.response || err.message === 'Network Error';
+      
       if (isNetworkError) {
-        // --- OFFLINE FLOW ---
-        // A. Hash the OTP for security (Never store raw OTPs!)
-        const hashedOtp = await Crypto.digestStringAsync(
-          Crypto.CryptoDigestAlgorithm.SHA256,
-          otpInput
-        );
-
-        // B. Actually save to SQLite Sync Queue
+        const hashedOtp = await Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, otpInput);
+        
         await enqueueAction("PAYMENT_PENDING", {
-          orderId,
-          final_volume: volume,
-          amount,
-          otp_hash: hashedOtp,
+          orderId, 
+          final_volume: volume, 
+          amount, 
+          otp_hash: hashedOtp, 
           timestamp: new Date().toISOString()
         });
-
-        // C. Alert the Driver
-        Alert.alert(
-          "Offline Mode Active",
-          "Network unavailable. Delivery logged with verified OTP. Status saved as PAYMENT_PENDING for manual settlement.",
-          [{ text: "Acknowledge & Finish", onPress: () => navigation.reset({ index: 0, routes: [{ name: 'Main' }] }) }]
-        );
+        
+        await AsyncStorage.removeItem("active_order");
+        disconnect();
+        reset();
+        
+        Alert.alert("Saved Offline", "Network error. Transaction queued for sync.", [
+          { text: "View Receipt", onPress: () => navigation.replace("ReceiptScreen", { order, volume, rate: RATE }) }
+        ]);
       } else {
-        // --- STANDARD ERROR FLOW ---
-        // E.g., Backend says "Invalid OTP" or "Order already closed"
-        const errorMsg = err.response?.data?.message || "An error occurred during verification. Please try again.";
-        Alert.alert("Verification Failed", errorMsg, [{ text: "OK" }]);
+        Alert.alert("Verification Failed", err.response?.data?.error || "Invalid OTP entered.");
       }
     } finally {
       setProcessingPayment(false);
@@ -99,70 +171,47 @@ export default function DispensingScreen({ route, navigation }: any) {
   };
 
   return (
-    <View style={styles.container}>
-      {/* 1. TOP WARNING BANNER */}
-      <View style={styles.warningBanner}>
-        <Info size={16} color="#92400E" />
-        <View style={{ marginLeft: 10 }}>
-          <Text style={styles.warningTitle}>Offline Mode</Text>
-          <Text style={styles.warningSubText}>Logs saved locally. Sync. pending.</Text>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.banner}>
+        <Info size={18} color="#92400E" />
+        <View style={{ marginLeft: 12 }}>
+          <Text style={styles.bannerTitle}>
+            {dispenseComplete ? "Dispensing Complete" : "Dispensing In Progress"}
+          </Text>
+          <Text style={styles.bannerSubtitle}>
+            {dispenseComplete ? "Enter End OTP to finalize." : "Safety: Keep away from nozzle."}
+          </Text>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* 2. MAIN VOLUME METER */}
+      <ScrollView contentContainerStyle={styles.scroll}>
         <View style={styles.meterArea}>
-          <Text style={styles.mainVolume}>{volume.toFixed(2)}</Text>
-          <Text style={styles.unitLabel}>L</Text>
+          <Text style={styles.mainVolume}>{volume || "0.00"}</Text>
+          <Text style={styles.unit}>L</Text>
         </View>
 
-        {/* 3. AMOUNT & RATE GRID */}
-        <View style={styles.dataGrid}>
-          <View style={styles.dataItem}>
-            <Text style={styles.dataLabel}>Amount</Text>
-            <Text style={styles.dataValue}>₹ {amount.toLocaleString('en-IN')}</Text>
+        <View style={styles.statsRow}>
+          <View>
+            <Text style={styles.statLabel}>Total Amount</Text>
+            <Text style={styles.statValue}>₹ {amount || "0.00"}</Text>
           </View>
-          <View style={styles.dataItemRight}>
-             <Text style={styles.dataValue}>₹ {RATE} / L</Text>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.statLabel}>Rate</Text>
+            <Text style={styles.statValue}>₹ {RATE}/L</Text>
           </View>
         </View>
 
-        {/* 4. TIMELINE DIVIDER */}
-        <View style={styles.timelineDivider}>
-           <View style={styles.line} />
-           <Text style={styles.timelineText}>Timeline arounder</Text>
-           <View style={styles.line} />
-        </View>
-
-        {/* 5. THE SYSTEM SYNC BAR */}
-        <View style={styles.syncBarContainer}>
-           <View style={styles.syncHeader}>
-              <Info size={14} color="#92400E" />
-              <Text style={styles.syncLabel}>OFFLINE MODE:</Text>
-           </View>
-           <View style={styles.progressBarBg}>
-              <View style={[styles.progressBarFill, { width: dispenseComplete ? '100%' : '40%' }]} />
-           </View>
-        </View>
-
-        {/* 6. CONTEXTUAL ACTION AREA */}
         {!dispenseComplete ? (
-          <TouchableOpacity 
-            style={[styles.actionBtn, running ? styles.bgRed : styles.bgGreen]} 
-            onPress={running ? stopDispensing : startDispensing}
-          >
-            <Text style={styles.actionBtnText}>
-              {running ? "STOP DISPENSING" : "START DISPENSING"}
-            </Text>
+          <TouchableOpacity style={styles.stopButton} onPress={handleStopDispensing}>
+            <Text style={styles.stopButtonText}>STOP PUMP</Text>
           </TouchableOpacity>
         ) : (
-          <View style={styles.settlementBox}>
-            <Text style={styles.otpHeader}>Enter End OTP</Text>
-            
-            <View style={styles.otpContainer}>
+          <View style={styles.otpSection}>
+            <Text style={styles.otpLabel}>Customer 4-Digit OTP</Text>
+            <View style={styles.otpRow}>
               {[0, 1, 2, 3].map((i) => (
                 <View key={i} style={styles.otpBox}>
-                  <Text style={styles.otpChar}>{otpInput[i] || "-"}</Text>
+                  <Text style={styles.otpText}>{otpInput[i] || "-"}</Text>
                 </View>
               ))}
               <TextInput
@@ -171,58 +220,48 @@ export default function DispensingScreen({ route, navigation }: any) {
                 maxLength={4}
                 value={otpInput}
                 onChangeText={setOtpInput}
-                autoFocus={dispenseComplete}
+                autoFocus={true}
               />
             </View>
 
             <TouchableOpacity 
-              style={[styles.payBtn, processingPayment && { opacity: 0.6 }]} 
+              style={[styles.payButton, processingPayment && { opacity: 0.6 }]} 
               onPress={handleVerifyAndPay}
               disabled={processingPayment}
             >
-              <Text style={styles.payBtnText}>
-                {processingPayment ? "Processing..." : "Verify OTP & Complete Delivery"}
-              </Text>
+              {processingPayment ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.payButtonText}>Verify & Settle Payment</Text>
+              )}
             </TouchableOpacity>
           </View>
         )}
       </ScrollView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  warningBanner: { flexDirection: 'row', backgroundColor: "#FEF3C7", paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 60 : 50, paddingBottom: 15, alignItems: 'center' },
-  warningTitle: { fontWeight: "900", color: "#92400E", fontSize: 14 },
-  warningSubText: { color: "#B45309", fontSize: 12, fontWeight: '600' },
-  scrollContent: { paddingHorizontal: 24, alignItems: 'center' },
-  meterArea: { flexDirection: 'row', alignItems: 'baseline', marginTop: 50, marginBottom: 40 },
-  mainVolume: { fontSize: 80, fontWeight: "300", color: "#111827", letterSpacing: -2 },
-  unitLabel: { fontSize: 36, fontWeight: "400", color: "#111827", marginLeft: 8 },
-  dataGrid: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 20 },
-  dataItem: { gap: 4 },
-  dataItemRight: { justifyContent: 'flex-end', paddingBottom: 2 },
-  dataLabel: { fontSize: 13, color: "#6B7280", fontWeight: "700", textTransform: 'uppercase' },
-  dataValue: { fontSize: 24, fontWeight: "900", color: "#111827" },
-  timelineDivider: { flexDirection: 'row', alignItems: 'center', width: '100%', marginVertical: 20, gap: 10 },
-  line: { flex: 1, height: 1, backgroundColor: '#F3F4F6' },
-  timelineText: { color: '#D1D5DB', fontSize: 11, fontWeight: '700' },
-  syncBarContainer: { width: '100%', backgroundColor: '#FDE68A', borderRadius: 12, padding: 16, marginBottom: 40 },
-  syncHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
-  syncLabel: { fontWeight: "900", color: "#92400E", fontSize: 12 },
-  progressBarBg: { height: 6, backgroundColor: 'rgba(146, 64, 14, 0.15)', borderRadius: 3 },
-  progressBarFill: { height: '100%', backgroundColor: '#D97706', borderRadius: 3 },
-  actionBtn: { width: '100%', paddingVertical: 18, borderRadius: 16, alignItems: 'center', elevation: 4 },
-  bgGreen: { backgroundColor: '#10B981' },
-  bgRed: { backgroundColor: '#EF4444' },
-  actionBtnText: { color: '#fff', fontWeight: '900', fontSize: 16 },
-  settlementBox: { width: '100%', alignItems: 'center' },
-  otpHeader: { fontSize: 14, fontWeight: '700', color: '#6B7280', marginBottom: 15 },
-  otpContainer: { flexDirection: 'row', gap: 12, marginBottom: 30, justifyContent: 'center' },
-  otpBox: { width: 55, height: 65, borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
-  otpChar: { fontSize: 24, fontWeight: '800', color: '#111827' },
+  container: { flex: 1, backgroundColor: "#FFFFFF" },
+  banner: { flexDirection: 'row', backgroundColor: "#FEF3C7", padding: 20, alignItems: 'center' },
+  bannerTitle: { fontWeight: "900", color: "#92400E", fontSize: 14 },
+  bannerSubtitle: { color: "#B45309", fontSize: 12, fontWeight: '600' },
+  scroll: { paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },
+  meterArea: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 40 },
+  mainVolume: { fontSize: 84, fontWeight: "300", color: "#111827", letterSpacing: -2 },
+  unit: { fontSize: 32, fontWeight: "400", color: "#6B7280", marginLeft: 8 },
+  statsRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 50 },
+  statLabel: { fontSize: 12, color: "#9CA3AF", fontWeight: "700", textTransform: 'uppercase' },
+  statValue: { fontSize: 24, fontWeight: "900", color: "#111827" },
+  stopButton: { width: '100%', backgroundColor: '#EF4444', padding: 20, borderRadius: 16, alignItems: 'center' },
+  stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 16 },
+  otpSection: { width: '100%', alignItems: 'center' },
+  otpLabel: { fontSize: 14, fontWeight: '700', color: '#6B7280', marginBottom: 20 },
+  otpRow: { flexDirection: 'row', gap: 12, marginBottom: 30 },
+  otpBox: { width: 60, height: 70, borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 12, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
+  otpText: { fontSize: 28, fontWeight: '800', color: '#111827' },
   hiddenInput: { position: 'absolute', opacity: 0, width: '100%', height: '100%' },
-  payBtn: { width: '100%', backgroundColor: '#111827', paddingVertical: 20, borderRadius: 16, alignItems: 'center' },
-  payBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 }
+  payButton: { width: '100%', backgroundColor: '#4F46E5', padding: 20, borderRadius: 16, alignItems: 'center' },
+  payButtonText: { color: '#fff', fontWeight: '800', fontSize: 16 }
 });
