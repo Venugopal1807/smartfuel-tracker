@@ -1,23 +1,35 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Alert, ActivityIndicator, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, SafeAreaView } from "react-native";
+import { 
+  View, Text, TextInput, TouchableOpacity, Alert, 
+  ActivityIndicator, StyleSheet, ScrollView, 
+  KeyboardAvoidingView, Platform 
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
+import { User, Landmark, Edit3, Check, X, LogOut, ChevronLeft } from "lucide-react-native";
 import { enqueueSyncEvent } from "../db/sqlite";
 
-// FIX: Use EXPO_PUBLIC prefix for React Native
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 
-const ProfileScreen: React.FC = () => {
+interface ProfileScreenProps {
+  onLogout: () => void;
+}
+
+const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(false);
-  const [profile, setProfile] = useState<any>(null);
-  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Form State
   const [name, setName] = useState("");
+  const [vehicleNumber, setVehicleNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
 
+  // 1. Fetch Data from Database on Load
   const fetchProfile = async () => {
     try {
       setLoading(true);
@@ -25,15 +37,18 @@ const ProfileScreen: React.FC = () => {
       const res = await axios.get(`${API_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+
       const data = res.data?.data;
-      setProfile(data);
-      setName(data?.name || "");
-      setVehicleNumber(data?.vehicleNumber || "");
-      setBankName(data?.bankName || "");
-      setAccountNumber(data?.accountNumber || "");
-      setIfsc(data?.ifscCode || "");
+      if (data) {
+        setName(data.name || "");
+        setVehicleNumber(data.vehicleNumber || data.vehicle_number || "");
+        setBankName(data.bankName || data.bank_name || "");
+        setAccountNumber(data.accountNumber || data.account_number || "");
+        setIfsc(data.ifscCode || data.ifsc_code || "");
+      }
     } catch (err: any) {
-      Alert.alert("Error", err.response?.data?.message || "Failed to load profile. Are you online?");
+      console.error("Profile Fetch Error", err);
+      Alert.alert("Error", "Could not fetch profile data from server.");
     } finally {
       setLoading(false);
     }
@@ -43,142 +58,130 @@ const ProfileScreen: React.FC = () => {
     fetchProfile();
   }, []);
 
+  // 2. Save Data and Update Database
   const onSave = async () => {
+    const payload = {
+      name,
+      vehicle_number: vehicleNumber, // Mapping to backend snake_case
+      bank_name: bankName,
+      account_number: accountNumber,
+      ifsc_code: ifsc,
+    };
+
     try {
       setLoading(true);
       const token = await AsyncStorage.getItem("auth_token");
-      await axios.patch(
-        `${API_URL}/api/auth/profile`,
-        {
-          name,
-          vehicle_number: vehicleNumber,
-          bank_name: bankName,
-          account_number: accountNumber,
-          ifsc_code: ifsc,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      Alert.alert("Success", "Profile successfully updated.");
-      fetchProfile();
+      await axios.patch(`${API_URL}/api/auth/profile`, payload, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      setIsEditing(false);
+      Alert.alert("Success", "Profile updated in database.");
+      fetchProfile(); // Refresh data
     } catch (err: any) {
       // Offline fallback
-      await enqueueSyncEvent("PROFILE_UPDATE_SYNC", {
-        name,
-        vehicle_number: vehicleNumber,
-        bank_name: bankName,
-        account_number: accountNumber,
-        ifsc_code: ifsc,
-      });
-      Alert.alert("Offline Mode", "Profile saved locally. It will sync when connection is restored.");
+      await enqueueSyncEvent("PROFILE_UPDATE_SYNC", payload);
+      setIsEditing(false);
+      Alert.alert("Offline", "Changes saved locally and will sync later.");
     } finally {
       setLoading(false);
     }
   };
 
-  const onLogout = async () => {
-    Alert.alert("Logout", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      { 
-        text: "Logout", 
-        style: "destructive", 
-        onPress: async () => {
-          // 1. Remove the badge from the wallet
-          await AsyncStorage.removeItem("auth_token");
-          
-          // 2. Clear the navigation and send them back to Login
-          // Because we used Conditional Navigation in App.tsx, 
-          // a simple refresh or navigating back to the start will 
-          // trigger the Guard to re-check the (now empty) wallet.
-          navigation.reset({
-            index: 0,
-            routes: [{ name: 'Login' }],
-          });
-          
-          // Note: Since we aren't using a global state manager yet,
-          // you might need to reload the app manually once after logout 
-          // or I can show you the "Context API" in the next step!
-        }
-      }
-    ]);
-  };
+  const renderInfoRow = (label: string, value: string, placeholder: string, onChange: (t: string) => void) => (
+    <View style={styles.infoRow}>
+      <Text style={styles.label}>{label}</Text>
+      {isEditing ? (
+        <TextInput 
+          style={styles.input} 
+          value={value} 
+          onChangeText={onChange} 
+          placeholder={placeholder}
+          placeholderTextColor="#9CA3AF"
+        />
+      ) : (
+        <Text style={styles.valueText}>{value || "Not Set"}</Text>
+      )}
+    </View>
+  );
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.backButtonText}>← Back</Text>
-          </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profile & Bank</Text>
-          <View style={{ width: 60 }} /> {/* Spacer to center title */}
-        </View>
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <ChevronLeft size={24} color="#111827" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Profile Settings</Text>
+        <TouchableOpacity 
+          onPress={() => (isEditing ? onSave() : setIsEditing(true))}
+          style={styles.editBtn}
+        >
+          {isEditing ? <Check size={20} color="#10B981" /> : <Edit3 size={20} color="#4F46E5" />}
+        </TouchableOpacity>
+      </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
-          {loading && !profile && <ActivityIndicator size="large" color="#4F46E5" style={{ marginTop: 20 }} />}
-          
-          {profile && (
-            <>
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Personal Details</Text>
-                
-                <Text style={styles.label}>Full Name</Text>
-                <TextInput style={styles.input} value={name} onChangeText={setName} placeholder="John Doe" />
-
-                <Text style={styles.label}>Registered Phone</Text>
-                <TextInput style={[styles.input, styles.inputDisabled]} value={profile.phone} editable={false} />
-
-                <Text style={styles.label}>Vehicle Registration Number</Text>
-                <TextInput style={styles.input} value={vehicleNumber} onChangeText={setVehicleNumber} placeholder="TS-09-XXXX" autoCapitalize="characters" />
+      <ScrollView contentContainerStyle={styles.scroll}>
+        {loading && !isEditing ? (
+          <ActivityIndicator size="large" color="#4F46E5" style={{ marginTop: 50 }} />
+        ) : (
+          <KeyboardAvoidingView behavior="padding">
+            {/* Personal Details Card */}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <User size={18} color="#4F46E5" />
+                <Text style={styles.cardTitle}>Personal Details</Text>
               </View>
+              {renderInfoRow("Full Name", name, "Enter your name", setName)}
+              {renderInfoRow("Vehicle Number", vehicleNumber, "e.g. TS-09-XX-0000", setVehicleNumber)}
+            </View>
 
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Bank Information</Text>
-                <Text style={styles.label}>Bank Name</Text>
-                <TextInput style={styles.input} value={bankName} onChangeText={setBankName} placeholder="HDFC Bank" />
-                
-                <Text style={styles.label}>Account Number</Text>
-                <TextInput style={styles.input} value={accountNumber} onChangeText={setAccountNumber} keyboardType="number-pad" placeholder="0000000000" secureTextEntry />
-                
-                <Text style={styles.label}>IFSC Code</Text>
-                <TextInput style={styles.input} value={ifsc} onChangeText={setIfsc} autoCapitalize="characters" placeholder="HDFC0001234" />
+            {/* Bank Details Card */}
+            <View style={styles.card}>
+              <View style={styles.cardHeader}>
+                <Landmark size={18} color="#4F46E5" />
+                <Text style={styles.cardTitle}>Bank Details</Text>
               </View>
+              {renderInfoRow("Bank Name", bankName, "e.g. HDFC Bank", setBankName)}
+              {renderInfoRow("Account Number", accountNumber, "Enter account number", setAccountNumber)}
+              {renderInfoRow("IFSC Code", ifsc, "Enter IFSC", setIfsc)}
+            </View>
 
-              <TouchableOpacity onPress={onSave} disabled={loading} style={[styles.saveBtn, loading && { opacity: 0.7 }]}>
-                {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveBtnText}>Save Changes</Text>}
+            {isEditing && (
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditing(false)}>
+                <X size={18} color="#EF4444" style={{ marginRight: 8 }} />
+                <Text style={styles.cancelBtnText}>Discard Changes</Text>
               </TouchableOpacity>
+            )}
 
-              <TouchableOpacity onPress={onLogout} style={styles.logoutBtn}>
-                <Text style={styles.logoutBtnText}>Log Out Securely</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+            <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
+              <LogOut size={18} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={styles.logoutBtnText}>Logout Account</Text>
+            </TouchableOpacity>
+          </KeyboardAvoidingView>
+        )}
+      </ScrollView>
     </SafeAreaView>
   );
 };
 
-// FIX: Use StyleSheet.create for TypeScript compatibility and performance
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#F9FAFB" },
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 20, paddingBottom: 16, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#E5E7EB" },
-  backButton: { padding: 8 },
-  backButtonText: { color: "#4B5563", fontWeight: "600", fontSize: 16 },
-  headerTitle: { fontSize: 20, fontWeight: "800", color: "#111827" },
-  
-  scrollContent: { padding: 20, paddingBottom: 40 },
-  section: { backgroundColor: "#fff", borderRadius: 12, padding: 20, marginBottom: 20, borderWidth: 1, borderColor: "#E5E7EB" },
-  sectionTitle: { fontSize: 18, fontWeight: "700", color: "#111827", marginBottom: 16 },
-  
-  label: { color: "#4B5563", fontWeight: "600", marginBottom: 6, fontSize: 14 },
-  input: { backgroundColor: "#F9FAFB", borderWidth: 1, borderColor: "#D1D5DB", borderRadius: 8, paddingHorizontal: 16, paddingVertical: 14, fontSize: 16, marginBottom: 16, color: "#111827" },
-  inputDisabled: { backgroundColor: "#E5E7EB", color: "#6B7280" },
-  
-  saveBtn: { backgroundColor: "#4F46E5", paddingVertical: 16, borderRadius: 12, alignItems: "center", shadowColor: "#4F46E5", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4 },
-  saveBtnText: { color: "#fff", fontWeight: "700", fontSize: 18 },
-  
-  logoutBtn: { marginTop: 24, paddingVertical: 16, borderRadius: 12, borderWidth: 1, borderColor: "#FECACA", backgroundColor: "#FEF2F2", alignItems: "center" },
-  logoutBtnText: { color: "#EF4444", fontWeight: "700", fontSize: 16 }
+  container: { flex: 1, backgroundColor: "#F3F4F6" },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, backgroundColor: '#fff' },
+  headerTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
+  backBtn: { padding: 4 },
+  editBtn: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 12 },
+  scroll: { padding: 20 },
+  card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
+  cardTitle: { fontSize: 15, fontWeight: '700', color: '#374151' },
+  infoRow: { marginBottom: 16 },
+  label: { fontSize: 12, color: '#9CA3AF', fontWeight: '700', marginBottom: 6, textTransform: 'uppercase' },
+  valueText: { fontSize: 16, color: '#111827', fontWeight: '600' },
+  input: { fontSize: 16, color: '#111827', borderBottomWidth: 1.5, borderBottomColor: '#E5E7EB', paddingVertical: 4, fontWeight: '600' },
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15 },
+  cancelBtnText: { color: '#EF4444', fontWeight: '700' },
+  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20, backgroundColor: '#FEE2E2', padding: 16, borderRadius: 12 },
+  logoutBtnText: { color: '#EF4444', fontWeight: '700' }
 });
 
 export default ProfileScreen;
