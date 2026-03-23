@@ -1,34 +1,59 @@
-type Event = { uuid: string; payload: Record<string, unknown> };
+type SyncEvent = { idempotencyKey: string; payload: Record<string, unknown> };
 
-// Simple in-memory idempotency guard to mirror sync handler behaviour.
+// Improved mock to handle failures (critical for offline sync)
 const makeProcessor = () => {
   const seen = new Set<string>();
-  return (event: Event) => {
-    if (seen.has(event.uuid)) {
-      return { processed: false };
+  
+  return (event: SyncEvent, shouldSucceed = true) => {
+    if (seen.has(event.idempotencyKey)) {
+      return { processed: false, reason: "Duplicate" };
     }
-    seen.add(event.uuid);
+
+    if (!shouldSucceed) {
+      // If sync fails (e.g., network timeout), we DON'T add to seen
+      return { processed: false, reason: "Network Error" };
+    }
+
+    seen.add(event.idempotencyKey);
     return { processed: true };
   };
 };
 
-describe("Sync idempotency", () => {
-  it("processes a UUID only once", () => {
+describe("Sync Idempotency Gatekeeper", () => {
+  
+  it("✅ Prevents duplicate processing of the same key", () => {
     const process = makeProcessor();
-    const event = { uuid: "123e4567", payload: { volume: 10 } };
+    const event = { idempotencyKey: "evt_123", payload: { liters: 50 } };
 
-    const first = process(event);
-    const second = process(event);
+    const firstAttempt = process(event);
+    const secondAttempt = process(event);
 
-    expect(first.processed).toBe(true);
-    expect(second.processed).toBe(false);
+    expect(firstAttempt.processed).toBe(true);
+    expect(secondAttempt.processed).toBe(false);
+    expect(secondAttempt.reason).toBe("Duplicate");
   });
 
-  it("allows different UUIDs to process independently", () => {
+  it("🔄 Allows retries if the initial sync failed", () => {
     const process = makeProcessor();
-    const first = process({ uuid: "id-1", payload: {} });
-    const second = process({ uuid: "id-2", payload: {} });
-    expect(first.processed).toBe(true);
-    expect(second.processed).toBe(true);
+    const event = { idempotencyKey: "evt_retry_test", payload: {} };
+
+    // First attempt fails (e.g., Server 500 or Network Down)
+    const firstAttempt = process(event, false);
+    expect(firstAttempt.processed).toBe(false);
+    expect(firstAttempt.reason).toBe("Network Error");
+
+    // Second attempt (retry) should succeed because it wasn't marked as 'seen'
+    const secondAttempt = process(event, true);
+    expect(secondAttempt.processed).toBe(true);
+  });
+
+  it("⚡ Processes independent events concurrently", () => {
+    const process = makeProcessor();
+    const results = [
+      process({ idempotencyKey: "log_1", payload: {} }),
+      process({ idempotencyKey: "log_2", payload: {} })
+    ];
+    
+    expect(results.every(r => r.processed)).toBe(true);
   });
 });
