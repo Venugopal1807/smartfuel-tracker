@@ -1,33 +1,33 @@
 /**
  * test-sync.ts — Idempotency Proof Script
- *
- * This script sends the SAME batch of fuel logs to POST /api/logs/sync twice.
- * Expected behavior:
- *   - First request:  processedCount = 2 (both logs are new)
- *   - Second request: processedCount = 0 (duplicates silently skipped)
- *
- * Usage: npx tsx scripts/test-sync.ts
+ * * UPDATED: 
+ * 1. Added Authorization header (JWT)
+ * 2. Changed userId to UUID string
+ * 3. Aligned with backend endpoint structure
  */
 
 const BASE_URL = "http://localhost:3000";
+
+// ⚠️ UPDATE THIS: Paste a valid JWT token from your login/signup response
+const DEV_TOKEN = "YOUR_JWT_TOKEN_HERE"; 
 
 const testBatch = {
   logs: [
     {
       mobileOfflineId: "test-uuid-aaa-111",
-      userId: 1,
+      userId: "00000000-0000-0000-0000-000000000001", // Must be a UUID string
       volume: 45.5,
       lat: 28.6139,
       lng: 77.209,
-      timestamp: "2026-03-17T12:00:00.000Z",
+      timestamp: new Date().toISOString(),
     },
     {
       mobileOfflineId: "test-uuid-bbb-222",
-      userId: 1,
+      userId: "00000000-0000-0000-0000-000000000001", // Must be a UUID string
       volume: 120.75,
       lat: 28.7041,
       lng: 77.1025,
-      timestamp: "2026-03-17T12:30:00.000Z",
+      timestamp: new Date().toISOString(),
     },
   ],
 };
@@ -37,9 +37,13 @@ async function sendSync(attemptNumber: number) {
   try {
     const response = await fetch(`${BASE_URL}/api/logs/sync`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${DEV_TOKEN}` // ✅ Added Auth
+      },
       body: JSON.stringify(testBatch),
     });
+
     const data = await response.json();
     console.log(`Status: ${response.status}`);
     console.log("Response:", JSON.stringify(data, null, 2));
@@ -52,6 +56,12 @@ async function sendSync(attemptNumber: number) {
 
 async function main() {
   console.log("🧪 SmartFuel Idempotency Test");
+  
+  if (DEV_TOKEN === "YOUR_JWT_TOKEN_HERE") {
+    console.log("❌ ERROR: Please update 'DEV_TOKEN' with a real JWT from your /login endpoint first.");
+    return;
+  }
+
   console.log("Sending the same batch twice to prove duplicates are ignored.\n");
 
   // First request — should insert 2 logs
@@ -64,8 +74,8 @@ async function main() {
   if (first?.processedCount === 2 && second?.processedCount === 0) {
     console.log("✅ PASS: Idempotency confirmed! Second batch was correctly skipped.");
   } else if (first?.processedCount === 0 && second?.processedCount === 0) {
-    console.log("ℹ️  Both returned 0. The test data was already in the DB from a previous run.");
-    console.log("   Delete the test rows or use new UUIDs and re-run.");
+    console.log("ℹ️  Both returned 0. The test data is already in the DB.");
+    console.log("   TIP: Change the mobileOfflineIds or delete those rows from 'fuel_logs'.");
   } else {
     console.log("❌ FAIL: Unexpected counts.", {
       first: first?.processedCount,
