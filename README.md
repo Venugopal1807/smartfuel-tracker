@@ -72,16 +72,16 @@ Driver App (React Native)
 
 - Server-side HMAC-SHA256 payment verification: Secret
   never leaves the server; client sends payment ID,
-  backend generates and verifies signature internally;
+  backend generates and verifies signature internally,
   architecturally identical to Razorpay webhook verification
 
 - BLE hybrid scan with intelligent fallback: 5-second
-  real scan for MDU controllers; automatic fallback to
+  real scan for MDU controllers, automatic fallback to
   simulated device ensures the complete driver workflow
   is always demo-able without physical hardware
 
 - Heartbeat ping instead of NetInfo: NetInfo reports
-  "connected" even when the router has no internet;
+  "connected" even when the router has no internet,
   the sync worker pings GET /api/health and only drains
   the queue on a genuine 200 response
 
@@ -93,7 +93,7 @@ Driver App (React Native)
   Relcon MDU testing requires physical device with
   Modbus protocol support
 - Payment uses internal HMAC verification: Production
-  deployment replaces mock payment ID with Razorpay SDK;
+  deployment replaces mock payment ID with Razorpay SDK,
   backend architecture is identical
 - History UI display is in progress: Data layer
   complete, presentation layer pending
