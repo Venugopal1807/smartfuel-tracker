@@ -67,7 +67,7 @@ Driver App (React Native)
 
 - Idempotent sync with UUID deduplication: Every offline
   event gets a UUID generated on-device before any network
-  call; PostgreSQL uses onConflictDoNothing to guarantee
+  call, PostgreSQL uses onConflictDoNothing to guarantee
   zero double-billing regardless of retry count
 
 - Server-side HMAC-SHA256 payment verification: Secret
