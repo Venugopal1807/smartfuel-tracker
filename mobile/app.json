@@ -22,7 +22,15 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.venugopal1807.mobile"
+      "package": "com.venugopal1807.mobile",
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -30,7 +38,21 @@
     "plugins": [
       "expo-sqlite",
       "expo-sharing",
-      "react-native-ble-plx"
+      [
+        "react-native-ble-plx",
+        {
+          "isBackgroundEnabled": true,
+          "modes": ["central"],
+          "bluetoothAlwaysPermission": "SmartFuel needs Bluetooth to connect to the Fuel Dispenser MDU.",
+          "bluetoothPeripheralPermission": "SmartFuel needs Bluetooth to connect to the Fuel Dispenser MDU."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "SmartFuel needs your location to verify delivery zones and prevent fuel theft."
+        }
+      ]
     ]
   }
 }

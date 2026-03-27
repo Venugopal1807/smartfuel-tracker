@@ -17,8 +17,7 @@ import { useNavigation } from "@react-navigation/native";
 import { Bell, Truck, ChevronDown, MapPin, User, Check } from "lucide-react-native";
 import { useFuelStore } from "../store/useFuelStore"; 
 
-// ✅ FIX: Moved API_URL to a standard constant
-const API_URL = "http://192.168.1.4:3000"; 
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000"; 
 const TABS = ["New", "Confirmed", "In Transit", "History"] as const;
 
 interface Order {

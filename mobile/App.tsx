@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-// IMPORT THIS:
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ActivityIndicator, View, Text } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -103,24 +102,24 @@ export default function App() {
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           {userToken === null ? (
             <Stack.Group>
-              // For LoginScreen
+              {/* For LoginScreen */}
               <Stack.Screen name="Login">
                 {(props) => (
                   <LoginScreen
                     {...props}
                     onSuccess={(token: string) => setUserToken(token)}
-                    onNavigateSignup={() => props.navigation.navigate("Signup")} // ✅ Add this line
+                    onNavigateSignup={() => props.navigation.navigate("Signup")}
                   />
                 )}
               </Stack.Screen>
 
-// For SignupScreen
+              {/* For SignupScreen */}
               <Stack.Screen name="Signup">
                 {(props) => (
                   <SignupScreen
                     {...props}
                     onSuccess={(token: string) => setUserToken(token)}
-                    onNavigateLogin={() => props.navigation.navigate("Login")} // ✅ Add this line
+                    onNavigateLogin={() => props.navigation.navigate("Login")}
                   />
                 )}
               </Stack.Screen>

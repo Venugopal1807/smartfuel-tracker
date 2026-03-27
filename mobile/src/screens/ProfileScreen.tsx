@@ -37,18 +37,25 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
       const res = await axios.get(`${API_URL}/api/auth/profile`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-
+  
       const data = res.data?.data;
       if (data) {
         setName(data.name || "");
-        setVehicleNumber(data.vehicleNumber || data.vehicle_number || "");
-        setBankName(data.bankName || data.bank_name || "");
-        setAccountNumber(data.accountNumber || data.account_number || "");
-        setIfsc(data.ifscCode || data.ifsc_code || "");
+        setVehicleNumber(data.vehicle_number || "");
+        setBankName(data.bank_name || "");
+        setAccountNumber(data.account_number || "");
+        setIfsc(data.ifsc_code || "");
       }
     } catch (err: any) {
       console.error("Profile Fetch Error", err);
-      Alert.alert("Error", "Could not fetch profile data from server.");
+      
+      //  If user not found (404) or token invalid (401), force logout
+      if (err.response?.status === 404 || err.response?.status === 401) {
+        await AsyncStorage.removeItem("auth_token");
+        onLogout(); 
+      } else {
+        Alert.alert("Error", "Could not fetch profile data.");
+      }
     } finally {
       setLoading(false);
     }

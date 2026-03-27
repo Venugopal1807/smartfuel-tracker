@@ -30,14 +30,38 @@ export default function useBLE() {
   // --- 1. PERMISSIONS ---
   const requestPermissions = async () => {
     if (Platform.OS === 'android') {
-      const granted = await PermissionsAndroid.requestMultiple([
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
-        PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
-        PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
-      ]);
-      return granted['android.permission.BLUETOOTH_CONNECT'] === 'granted';
+      const apiLevel = parseInt(Platform.Version.toString(), 10);
+
+      if (apiLevel < 31) {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION
+        );
+        return granted === PermissionsAndroid.RESULTS.GRANTED;
+      } else {
+        const result = await PermissionsAndroid.requestMultiple([
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN,
+          PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT,
+          PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION,
+        ]);
+
+        const isGranted =
+          result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_SCAN] === PermissionsAndroid.RESULTS.GRANTED &&
+          result[PermissionsAndroid.PERMISSIONS.BLUETOOTH_CONNECT] === PermissionsAndroid.RESULTS.GRANTED &&
+          result[PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION] === PermissionsAndroid.RESULTS.GRANTED;
+
+        // ✅ Trigger the System Popup using your existing 'manager' instance
+        if (isGranted) {
+          try {
+            await manager.enable();
+          } catch (e) {
+            console.log("User declined to turn on Bluetooth");
+          }
+        }
+
+        return isGranted;
+      }
     }
-    return true; 
+    return true;
   };
 
   // --- 2. START MANUAL SCAN ---
