@@ -12,10 +12,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
 import { Bell, Truck, ChevronDown, MapPin, User, Check } from "lucide-react-native";
+
+// Global Store & Offline Queue
 import { useFuelStore } from "../store/useFuelStore"; 
+import { enqueueSyncEvent } from "../db/sqlite";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000"; 
 const TABS = ["New", "Confirmed", "In Transit", "History"] as const;
@@ -33,7 +35,6 @@ interface DriverProfile {
   id?: string;
   name: string;
   initials: string;
-  active_vehicle?: string;
   pumpId?: string;
 }
 
@@ -43,8 +44,7 @@ interface Vehicle {
 }
 
 export default function DashboardScreen() {
-  // ✅ FIX: Hooks MUST be called inside the component
-  const { setActiveOrder } = useFuelStore(); 
+  const { setActiveOrder, activeVehicle, setActiveVehicle } = useFuelStore(); 
 
   const [tab, setTab] = useState<(typeof TABS)[number]>("New");
   const [orders, setOrders] = useState<Order[]>([]);
@@ -54,34 +54,41 @@ export default function DashboardScreen() {
   const [showVehiclePicker, setShowVehiclePicker] = useState(false);
   const navigation = useNavigation<any>();
 
+  const getHeaders = async () => {
+    const token = await AsyncStorage.getItem("auth_token");
+    return {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    };
+  };
+
   const fetchProfileAndVehicles = async () => {
     try {
-      const token = await AsyncStorage.getItem("auth_token");
-      if (!token) return;
-
-      const profileRes = await axios.get(`${API_URL}/api/auth/profile`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (profileRes.data?.success) {
-        const p = profileRes.data.data;
-        const name = p.name || "Driver";
-        const initials = name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2);
+      const headers = await getHeaders();
+      if (!headers.Authorization.includes("Bearer null")) {
         
-        setProfile({ 
-          id: p.id,
-          name, 
-          initials, 
-          active_vehicle: p.vehicleNumber,
-          pumpId: p.pumpId 
-        });
-
-        const vehicleRes = await axios.get(`${API_URL}/api/auth/vehicles/pump`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        // Fetch Profile
+        const profileRes = await fetch(`${API_URL}/api/auth/profile`, { headers });
+        const profileData = await profileRes.json();
         
-        if (vehicleRes.data?.success) {
-          setVehicles(vehicleRes.data.data);
+        if (profileData?.success) {
+          const p = profileData.data;
+          const name = p.name || "Driver";
+          const initials = name.split(' ').map((n: string) => n[0]).join('').toUpperCase().substring(0, 2);
+          
+          setProfile({ id: p.id, name, initials, pumpId: p.pumpId });
+
+          if (p.vehicleNumber && !activeVehicle) {
+            setActiveVehicle(p.vehicleNumber);
+          }
+
+          // Fetch Vehicles
+          const vehicleRes = await fetch(`${API_URL}/api/auth/vehicles/pump`, { headers });
+          const vehicleData = await vehicleRes.json();
+          
+          if (vehicleData?.success) {
+            setVehicles(vehicleData.data);
+          }
         }
       }
     } catch (err: any) {
@@ -92,7 +99,7 @@ export default function DashboardScreen() {
   const fetchOrders = async () => {
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem("auth_token");
+      const headers = await getHeaders();
       const statusMap: Record<string, string> = {
         "New": "pending",
         "Confirmed": "accepted",
@@ -100,11 +107,9 @@ export default function DashboardScreen() {
         "History": "completed"
       };
       
-      const res = await axios.get(`${API_URL}/api/orders`, {
-        params: { status: statusMap[tab] },
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setOrders(res.data?.data || []);
+      const res = await fetch(`${API_URL}/api/orders?status=${statusMap[tab]}`, { headers });
+      const data = await res.json();
+      setOrders(data?.data || []);
     } catch (err: any) {
       console.log("[Network] Order Fetch Error:", err.message);
     } finally {
@@ -115,22 +120,21 @@ export default function DashboardScreen() {
   const handleAcceptOrder = async (orderId: string) => {
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem("auth_token");
+      const headers = await getHeaders();
       const driverId = profile.id || "temp-driver-id";
 
-      const res = await axios.patch(
-        `${API_URL}/api/orders/${orderId}/accept`, 
-        { driverId }, 
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await fetch(`${API_URL}/api/orders/${orderId}/accept`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ driverId })
+      });
+      
+      const data = await res.json();
 
-      if (res.data.success) {
-        const acceptedOrder = res.data.data;
-        
-        // ✅ FIX: Update the global store so Timeline/Transit screens see the data
+      if (data.success) {
+        const acceptedOrder = data.data;
         setActiveOrder(acceptedOrder);
         await AsyncStorage.setItem("active_order", JSON.stringify(acceptedOrder));
-        
         navigation.navigate("Timeline"); 
         fetchOrders();
       }
@@ -145,32 +149,54 @@ export default function DashboardScreen() {
   };
 
   const handleViewOrder = async (item: Order) => {
-    // ✅ FIX: Update the global store
     setActiveOrder(item);
     await AsyncStorage.setItem("active_order", JSON.stringify(item));
-    
     const target = item.status === 'in_transit' ? "In Transit" : "Timeline";
     navigation.navigate(target);
   };
 
   const handleVehicleChange = async (vehicleReg: string) => {
+    const previousVehicle = activeVehicle;
+    
+    // 1. Optimistic UI Update
+    setActiveVehicle(vehicleReg);
+    setShowVehiclePicker(false);
+
     try {
-      const token = await AsyncStorage.getItem("auth_token");
-      await axios.patch(`${API_URL}/api/auth/profile`, 
-        { vehicle_number: vehicleReg },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setProfile(prev => ({ ...prev, active_vehicle: vehicleReg }));
-      setShowVehiclePicker(false);
-    } catch (err) {
-      setProfile(prev => ({ ...prev, active_vehicle: vehicleReg }));
-      setShowVehiclePicker(false);
+      const headers = await getHeaders();
+      const res = await fetch(`${API_URL}/api/auth/profile`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ vehicle_number: vehicleReg })
+      });
+
+      // 2. Concurrency Lock Rollback (Fetch handles HTTP statuses here)
+      if (res.status === 409) {
+        setActiveVehicle(previousVehicle);
+        Alert.alert("Vehicle Unavailable", "This vehicle was just claimed by another driver.");
+        return;
+      }
+
+      if (!res.ok) {
+        throw new Error("HTTP_ERROR");
+      }
+      
+    } catch (err: any) {
+      // 3. Offline Queue Logic (Fetch throws here on network failure)
+      if (err.message !== "HTTP_ERROR") {
+        await enqueueSyncEvent("VEHICLE_SWITCH_SYNC", { vehicle_number: vehicleReg });
+        Alert.alert("Offline Mode", "Vehicle switch queued locally. Will sync automatically.");
+      } else {
+        setActiveVehicle(previousVehicle);
+        Alert.alert("Error", "Could not switch vehicles at this time.");
+      }
     }
   };
 
   useEffect(() => { fetchProfileAndVehicles(); }, []);
   useEffect(() => { fetchOrders(); }, [tab]);
 
+  // UI Render Remains Exactly the Same
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.container}>
@@ -200,7 +226,7 @@ export default function DashboardScreen() {
               <Text style={styles.sectionTitle}>Active Vehicle</Text>
             </View>
             <TouchableOpacity style={styles.vehiclePicker} onPress={() => setShowVehiclePicker(true)}>
-              <Text style={styles.pickerValue}>{profile.active_vehicle || "Select Vehicle"}</Text>
+              <Text style={styles.pickerValue}>{activeVehicle || "Select Vehicle"}</Text>
               <ChevronDown size={18} color="#9CA3AF" />
             </TouchableOpacity>
           </View>
@@ -270,10 +296,10 @@ export default function DashboardScreen() {
                 renderItem={({ item }) => (
                   <TouchableOpacity style={styles.vehicleItem} onPress={() => handleVehicleChange(item.reg)}>
                     <View style={styles.vehicleItemLeft}>
-                      <Truck size={20} color={profile.active_vehicle === item.reg ? "#4F46E5" : "#6B7280"} />
-                      <Text style={[styles.vehicleRegText, profile.active_vehicle === item.reg && styles.activeVehicleText]}>{item.reg}</Text>
+                      <Truck size={20} color={activeVehicle === item.reg ? "#4F46E5" : "#6B7280"} />
+                      <Text style={[styles.vehicleRegText, activeVehicle === item.reg && styles.activeVehicleText]}>{item.reg}</Text>
                     </View>
-                    {profile.active_vehicle === item.reg && <Check size={20} color="#4F46E5" />}
+                    {activeVehicle === item.reg && <Check size={20} color="#4F46E5" />}
                   </TouchableOpacity>
                 )}
               />
@@ -285,7 +311,6 @@ export default function DashboardScreen() {
     </SafeAreaView>
   );
 }
-
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#fff" },
