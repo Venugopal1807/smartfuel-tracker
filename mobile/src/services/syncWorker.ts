@@ -1,4 +1,3 @@
-import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getPendingSyncEvents, deleteSyncEvent } from "../db/sqlite";
 
@@ -6,6 +5,12 @@ import { getPendingSyncEvents, deleteSyncEvent } from "../db/sqlite";
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 
 let isSyncing = false; // Guard to prevent overlapping sync cycles
+
+// Helper for Fetch Headers
+const getHeaders = (token: string) => ({
+  "Authorization": `Bearer ${token}`,
+  "Content-Type": "application/json"
+});
 
 export const checkConnectivity = async () => {
   try {
@@ -21,29 +26,39 @@ export const checkConnectivity = async () => {
 const handlePaymentRetry = async (payload: any, token: string) => {
   try {
     // 1. Create the transaction record
-    const create = await axios.post(`${API_URL}/api/payments/create-order`, 
-      { 
+    const createRes = await fetch(`${API_URL}/api/payments/create-order`, {
+      method: "POST",
+      headers: getHeaders(token),
+      body: JSON.stringify({ 
         orderId: payload.orderId, 
         amount: payload.amount,
         volume: payload.volume,
         pumpId: payload.pumpId || "MDU-OFFLINE"
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+      })
+    });
 
-    const pgOrderId = create.data?.pgOrderId;
+    if (createRes.status === 401) throw new Error("401");
+    if (!createRes.ok) return false;
+
+    const createData = await createRes.json();
+    const pgOrderId = createData?.pgOrderId;
 
     // 2. Verify using the OTP proof stored during the offline session
-    await axios.post(`${API_URL}/api/payments/verify`, 
-      {
+    const verifyRes = await fetch(`${API_URL}/api/payments/verify`, {
+      method: "POST",
+      headers: getHeaders(token),
+      body: JSON.stringify({
         pg_order_id: pgOrderId,
         pg_payment_id: `sf_off_${payload.otp_proof?.substring(0, 8)}`
-      },
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return true;
+      })
+    });
+
+    if (verifyRes.status === 401) throw new Error("401");
+    return verifyRes.ok;
+
   } catch (err: any) {
-    console.error("Payment sync failed:", err.response?.data || err.message);
+    if (err.message === "401") throw err; // Propagate auth errors to master loop
+    console.error("Payment sync failed:", err.message);
     return false;
   }
 };
@@ -51,12 +66,16 @@ const handlePaymentRetry = async (payload: any, token: string) => {
 const handleFuelLogSync = async (payload: any, token: string) => {
   try {
     // The backend expects an array of logs (Batch Sync)
-    await axios.post(`${API_URL}/api/logs/sync`, 
-      { logs: [payload] }, 
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    return true;
+    const res = await fetch(`${API_URL}/api/logs/sync`, {
+      method: "POST",
+      headers: getHeaders(token),
+      body: JSON.stringify({ logs: [payload] })
+    });
+
+    if (res.status === 401) throw new Error("401");
+    return res.ok;
   } catch (err: any) {
+    if (err.message === "401") throw err;
     return false;
   }
 };
@@ -85,14 +104,29 @@ export const syncPendingEvents = async () => {
         case "PAYMENT_PENDING":
           success = await handlePaymentRetry(payload, token);
           break;
+
         case "FUEL_LOG_SYNC":
           success = await handleFuelLogSync(payload, token);
           break;
+
         case "PROFILE_UPDATE_SYNC":
-          const res = await axios.patch(`${API_URL}/api/auth/profile`, payload, {
-             headers: { Authorization: `Bearer ${token}` }
+        case "VEHICLE_SWITCH_SYNC": // Handled together as both hit the profile patch route
+          const patchRes = await fetch(`${API_URL}/api/auth/profile`, {
+            method: "PATCH",
+            headers: getHeaders(token),
+            body: JSON.stringify(payload)
           });
-          success = !!res.data.success;
+          
+          if (patchRes.status === 401) throw new Error("401");
+          
+          // CONCURRENCY SAFETY: If 409 Conflict, the vehicle is taken. 
+          // We MUST mark as success to delete the event so it doesn't block the queue forever.
+          if (patchRes.status === 409) {
+            console.warn(`[Sync] Vehicle switch rejected (Conflict). Dropping event ${evt.id}`);
+            success = true; 
+          } else {
+            success = patchRes.ok;
+          }
           break;
       }
 
@@ -100,7 +134,7 @@ export const syncPendingEvents = async () => {
         await deleteSyncEvent(evt.id);
       }
     } catch (err: any) {
-      if (err.response?.status === 401) {
+      if (err.message === "401") {
         console.warn("Sync aborted: Token expired.");
         break; // Stop processing the queue if unauthorized
       }
