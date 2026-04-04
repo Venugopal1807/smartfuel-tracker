@@ -6,10 +6,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import axios from "axios";
 import { useNavigation } from "@react-navigation/native";
 import { User, Landmark, Edit3, Check, X, LogOut, ChevronLeft } from "lucide-react-native";
+
+// Global Store & Offline Queue
 import { enqueueSyncEvent } from "../db/sqlite";
+import { useFuelStore } from "../store/useFuelStore"; 
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 
@@ -22,40 +24,61 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   const [loading, setLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
-  // Form State
+  // Global Vehicle State
+  const { activeVehicle, setActiveVehicle } = useFuelStore();
+
+  // Local Form State
   const [name, setName] = useState("");
-  const [vehicleNumber, setVehicleNumber] = useState("");
   const [bankName, setBankName] = useState("");
   const [accountNumber, setAccountNumber] = useState("");
   const [ifsc, setIfsc] = useState("");
+
+  // We keep a local vehicle state only for editing purposes
+  const [editVehicleNumber, setEditVehicleNumber] = useState("");
+
+  const getHeaders = async () => {
+    const token = await AsyncStorage.getItem("auth_token");
+    return {
+      "Authorization": `Bearer ${token}`,
+      "Content-Type": "application/json"
+    };
+  };
 
   // 1. Fetch Data from Database on Load
   const fetchProfile = async () => {
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem("auth_token");
-      const res = await axios.get(`${API_URL}/api/auth/profile`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-  
-      const data = res.data?.data;
+      const headers = await getHeaders();
+      const res = await fetch(`${API_URL}/api/auth/profile`, { headers });
+      
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 401) {
+          await AsyncStorage.removeItem("auth_token");
+          onLogout();
+          return;
+        }
+        throw new Error("HTTP_ERROR");
+      }
+
+      const responseData = await res.json();
+      const data = responseData?.data;
+      
       if (data) {
         setName(data.name || "");
-        setVehicleNumber(data.vehicle_number || "");
         setBankName(data.bank_name || "");
         setAccountNumber(data.account_number || "");
         setIfsc(data.ifsc_code || "");
+        
+        // Sync database vehicle with global store and local edit state
+        const dbVehicle = data.vehicle_number || "";
+        if (dbVehicle && !activeVehicle) {
+           setActiveVehicle(dbVehicle);
+        }
+        setEditVehicleNumber(dbVehicle);
       }
     } catch (err: any) {
       console.error("Profile Fetch Error", err);
-      
-      //  If user not found (404) or token invalid (401), force logout
-      if (err.response?.status === 404 || err.response?.status === 401) {
-        await AsyncStorage.removeItem("auth_token");
-        onLogout(); 
-      } else {
-        Alert.alert("Error", "Could not fetch profile data.");
-      }
+      Alert.alert("Error", "Could not fetch profile data.");
     } finally {
       setLoading(false);
     }
@@ -65,11 +88,18 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
     fetchProfile();
   }, []);
 
+  // Sync local edit field with global state if it changes externally (e.g. from Dashboard)
+  useEffect(() => {
+    if (activeVehicle && !isEditing) {
+      setEditVehicleNumber(activeVehicle);
+    }
+  }, [activeVehicle, isEditing]);
+
   // 2. Save Data and Update Database
   const onSave = async () => {
     const payload = {
       name,
-      vehicle_number: vehicleNumber, // Mapping to backend snake_case
+      vehicle_number: editVehicleNumber,
       bank_name: bankName,
       account_number: accountNumber,
       ifsc_code: ifsc,
@@ -77,19 +107,36 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
 
     try {
       setLoading(true);
-      const token = await AsyncStorage.getItem("auth_token");
-      await axios.patch(`${API_URL}/api/auth/profile`, payload, {
-        headers: { Authorization: `Bearer ${token}` },
+      const headers = await getHeaders();
+      
+      // Optimistic Global State Update
+      const previousVehicle = activeVehicle;
+      setActiveVehicle(editVehicleNumber);
+
+      const res = await fetch(`${API_URL}/api/auth/profile`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify(payload)
       });
+
+      if (!res.ok) {
+        // Rollback on conflict or server error
+        setActiveVehicle(previousVehicle);
+        throw new Error(`HTTP_ERROR_${res.status}`);
+      }
       
       setIsEditing(false);
       Alert.alert("Success", "Profile updated in database.");
-      fetchProfile(); // Refresh data
+      
     } catch (err: any) {
       // Offline fallback
-      await enqueueSyncEvent("PROFILE_UPDATE_SYNC", payload);
-      setIsEditing(false);
-      Alert.alert("Offline", "Changes saved locally and will sync later.");
+      if (!err.message.includes("HTTP_ERROR")) {
+         await enqueueSyncEvent("PROFILE_UPDATE_SYNC", payload);
+         setIsEditing(false);
+         Alert.alert("Offline", "Changes saved locally and will sync later.");
+      } else {
+         Alert.alert("Error", "Could not update profile.");
+      }
     } finally {
       setLoading(false);
     }
@@ -131,7 +178,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
         {loading && !isEditing ? (
           <ActivityIndicator size="large" color="#4F46E5" style={{ marginTop: 50 }} />
         ) : (
-          <KeyboardAvoidingView behavior="padding">
+          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
             {/* Personal Details Card */}
             <View style={styles.card}>
               <View style={styles.cardHeader}>
@@ -139,7 +186,8 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
                 <Text style={styles.cardTitle}>Personal Details</Text>
               </View>
               {renderInfoRow("Full Name", name, "Enter your name", setName)}
-              {renderInfoRow("Vehicle Number", vehicleNumber, "e.g. TS-09-XX-0000", setVehicleNumber)}
+              {/* Note: We render the activeVehicle from global state when not editing */}
+              {renderInfoRow("Vehicle Number", isEditing ? editVehicleNumber : (activeVehicle || ""), "e.g. TS-09-XX-0000", setEditVehicleNumber)}
             </View>
 
             {/* Bank Details Card */}
@@ -154,7 +202,10 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
             </View>
 
             {isEditing && (
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setIsEditing(false)}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => {
+                setIsEditing(false);
+                setEditVehicleNumber(activeVehicle || ""); // Reset local edit state
+              }}>
                 <X size={18} color="#EF4444" style={{ marginRight: 8 }} />
                 <Text style={styles.cancelBtnText}>Discard Changes</Text>
               </TouchableOpacity>
