@@ -13,7 +13,7 @@ import { User, Landmark, Edit3, Check, X, LogOut, ChevronLeft } from "lucide-rea
 import { enqueueSyncEvent } from "../db/sqlite";
 import { useFuelStore } from "../store/useFuelStore"; 
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.5:3000";
 
 interface ProfileScreenProps {
   onLogout: () => void;

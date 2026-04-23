@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { 
   View, 
   Text, 
@@ -8,7 +8,8 @@ import {
   ScrollView, 
   Modal, 
   FlatList,
-  Alert
+  Alert,
+  RefreshControl
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -51,6 +52,7 @@ export default function DashboardScreen() {
   const [profile, setProfile] = useState<DriverProfile>({ name: "Driver", initials: "DR" });
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [showVehiclePicker, setShowVehiclePicker] = useState(false);
   const navigation = useNavigation<any>();
 
@@ -117,6 +119,16 @@ export default function DashboardScreen() {
     }
   };
 
+  // Pull-to-Refresh Handler
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchProfileAndVehicles(),
+      fetchOrders()
+    ]);
+    setRefreshing(false);
+  }, [tab]);
+
   const handleAcceptOrder = async (orderId: string) => {
     try {
       setLoading(true);
@@ -170,7 +182,7 @@ export default function DashboardScreen() {
         body: JSON.stringify({ vehicle_number: vehicleReg })
       });
 
-      // 2. Concurrency Lock Rollback (Fetch handles HTTP statuses here)
+      // 2. Concurrency Lock Rollback 
       if (res.status === 409) {
         setActiveVehicle(previousVehicle);
         Alert.alert("Vehicle Unavailable", "This vehicle was just claimed by another driver.");
@@ -182,7 +194,7 @@ export default function DashboardScreen() {
       }
       
     } catch (err: any) {
-      // 3. Offline Queue Logic (Fetch throws here on network failure)
+      // 3. Offline Queue Logic 
       if (err.message !== "HTTP_ERROR") {
         await enqueueSyncEvent("VEHICLE_SWITCH_SYNC", { vehicle_number: vehicleReg });
         Alert.alert("Offline Mode", "Vehicle switch queued locally. Will sync automatically.");
