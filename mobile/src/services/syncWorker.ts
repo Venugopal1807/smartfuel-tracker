@@ -2,7 +2,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getPendingSyncEvents, deleteSyncEvent } from "../db/sqlite";
 
 // ✅ Use EXPO_PUBLIC_ prefix for client-side environment variables
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.5:3000";
 
 let isSyncing = false; // Guard to prevent overlapping sync cycles
 
@@ -21,7 +21,7 @@ export const checkConnectivity = async () => {
   }
 };
 
-// ─── HANDLERS ──────────────────────────────────────────────────
+// ─── HANDLERS 
 
 const handlePaymentRetry = async (payload: any, token: string) => {
   try {
