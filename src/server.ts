@@ -26,15 +26,14 @@ app.use((req, res, next) => {
   next();
 });
 
-// ─── 🚩 ROOT LANDING PAGE (For Recruiters/Railway) ──────────
-// This ensures that clicking your live Railway link shows a professional status
+// ─── 🚩 ROOT LANDING PAGE (For Recruiters) ──────────
+// This ensures that clicking your live Render link shows a professional status
 app.get("/", (req, res) => {
   res.status(200).json({
     project: "SmartFuel Tracker API",
     version: "1.0.0",
     status: "Live & Healthy",
-    author: "venugopal",
-    documentation: "Build in Progress",
+    infrastructure: "Render Compute & Neon Serverless Postgres",
     endpoints: {
       auth: "/api/auth",
       orders: "/api/orders",
@@ -49,9 +48,9 @@ app.use("/api/auth", authRouter);
 app.use("/api/orders", ordersRouter);
 app.use("/api/payments", paymentsRouter);
 
-// ─── Health Check ───────────────────────────────────────────
+// ─── Health Check (Keep-Alive Target) ───────────────────────
 app.get("/api/health", (_req, res) => {
-  res.status(200).json({ status: "ok", serverTime: new Date().toISOString() });
+  res.status(200).json({ status: "awake", serverTime: new Date().toISOString() });
 });
 
 // ─── Sync Endpoint (UUID Compatible) ────────────────────────
