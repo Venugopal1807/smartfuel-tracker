@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from "react";
 import { 
   View, Text, TouchableOpacity, Alert, TextInput, 
-  StyleSheet, ScrollView, Platform, ActivityIndicator, SafeAreaView 
+  StyleSheet, ScrollView, Platform, ActivityIndicator, 
+  StatusBar 
 } from "react-native";
-import { Info, Truck, CheckCircle2, AlertTriangle, ChevronLeft } from "lucide-react-native";
-import axios from "axios";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { Info, Truck, CheckCircle2, AlertTriangle, ChevronLeft, Gauge } from "lucide-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Crypto from 'expo-crypto';
 import * as Location from 'expo-location'; 
@@ -21,19 +22,15 @@ import { useKeepAwake } from 'expo-keep-awake';
 const RATE = 108; // Fuel Rate per Liter
 
 export default function DispensingScreen({ route, navigation }: any) {
-  // Keeps the phone screen on while fueling is active
   useKeepAwake(); 
 
-  // 1. Extract Order Data
   const order = route.params?.order || null;
   const orderId = order?.id || "demo-order";
   
-  // 2. Global Store & Hardware Hooks
   const { setTelemetry, isDispensing, setIsDispensing, reset } = useFuelStore();
   const { volume: storeVol, amount: storeAmt } = useFuelStore();
   const { sendCommand, bleState, disconnect, connectedDevice } = useBLE();
 
-  // 3. Virtual Sensor (Bypass for Emulator/Testing)
   const { 
     currentVolume: simVol, 
     startDispensing: startSim, 
@@ -41,7 +38,6 @@ export default function DispensingScreen({ route, navigation }: any) {
     dispensing: isSimulating 
   } = useFuelSensor();
 
-  // 4. Local UI State
   const [dispenseComplete, setDispenseComplete] = useState(false);
   const [otpInput, setOtpInput] = useState("");
   const [processingPayment, setProcessingPayment] = useState(false);
@@ -49,34 +45,27 @@ export default function DispensingScreen({ route, navigation }: any) {
   const [userId, setUserId] = useState<string>("");
   const pollingInterval = useRef<NodeJS.Timeout | null>(null);
 
-  // --- INITIALIZATION (Auth & GPS) ---
   useEffect(() => {
     (async () => {
-      // 1. Fetch the Driver ID for logging
       const storedUser = await AsyncStorage.getItem("user_profile");
       if (storedUser) {
         const userObj = JSON.parse(storedUser);
         setUserId(String(userObj.id));
       }
 
-      // 2. Get GPS for the audit trail
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
         let loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         setLocation(loc);
       }
 
-      // 3. AUTO-START SIMULATION: If we are in Dev mode and no hardware is found
       if (__DEV__ && bleState !== "READY") {
-        console.log("[Dispensing] Hardware not found. Starting simulated flow...");
         setIsDispensing(true);
         startSim();
       }
     })();
   }, [bleState]);
 
-  // --- SYNC SIMULATION DATA TO GLOBAL STORE ---
-  // This makes the numbers move on the screen automatically
   useEffect(() => {
     if (__DEV__ && isSimulating) {
       const calculatedAmt = (simVol * RATE).toFixed(2);
@@ -84,7 +73,6 @@ export default function DispensingScreen({ route, navigation }: any) {
     }
   }, [simVol, isSimulating]);
 
-  // --- HARDWARE POLLING (Production / Real BLE) ---
   useEffect(() => {
     if (bleState === "READY") {
       pollingInterval.current = setInterval(() => {
@@ -96,10 +84,7 @@ export default function DispensingScreen({ route, navigation }: any) {
     };
   }, [bleState]);
 
-  // --- ACTION HANDLERS ---
-
   const handleStopDispensing = async () => {
-    // Stop polling/simulating
     if (pollingInterval.current) clearInterval(pollingInterval.current);
     if (__DEV__) stopSim();
     
@@ -109,8 +94,6 @@ export default function DispensingScreen({ route, navigation }: any) {
     try {
       const lat = location?.coords.latitude || 0;
       const lng = location?.coords.longitude || 0;
-
-      // Save the final volume to local SQLite for audit
       saveFuelLog(parseFloat(storeVol), lat, lng, userId, orderId);
     } catch (error) {
       console.error("Local Log Error:", error);
@@ -126,11 +109,10 @@ export default function DispensingScreen({ route, navigation }: any) {
     setProcessingPayment(true);
     
     try {
-      // ✅ BYPASS LOGIC: We skip the hardware "Nozzle Lock" check in Dev Mode
       let hardwareCheckPassed = false;
       
       if (__DEV__ && bleState !== "READY") {
-        hardwareCheckPassed = true; // Simulating hardware success
+        hardwareCheckPassed = true; 
       } else {
         const cmdBytes = buildCompleteOrderCmd(orderId, otpInput);
         hardwareCheckPassed = await sendCommand(cmdBytes);
@@ -142,7 +124,6 @@ export default function DispensingScreen({ route, navigation }: any) {
         return;
       }
 
-      // Online Settlement
       await processPayment(
         parseFloat(storeAmt), 
         orderId, 
@@ -151,7 +132,6 @@ export default function DispensingScreen({ route, navigation }: any) {
         connectedDevice?.name || "MDU-SIMULATED"
       );
 
-      // Cleanup
       await AsyncStorage.removeItem("active_order");
       if (bleState === "READY") disconnect();
       reset();
@@ -164,7 +144,6 @@ export default function DispensingScreen({ route, navigation }: any) {
       ]);
 
     } catch (err: any) {
-      // Offline Fallback for Poor Network
       const isNetworkError = !err.response || err.message === 'Network Error';
       const isInvalidOtp = err.response?.data?.error === "invalid otp entered";
 
@@ -201,48 +180,74 @@ export default function DispensingScreen({ route, navigation }: any) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
+      <StatusBar barStyle="dark-content" />
+      
       {/* Dynamic Status Header */}
-      <View style={[styles.banner, dispenseComplete ? styles.bannerComplete : styles.bannerActive]}>
-        {dispenseComplete ? <CheckCircle2 size={18} color="#065F46" /> : <ActivityIndicator size="small" color="#92400E" />}
-        <View style={{ marginLeft: 12 }}>
-          <Text style={styles.bannerTitle}>
-            {dispenseComplete ? "Fueling Successful" : "Fueling In Progress..."}
-          </Text>
-          <Text style={styles.bannerSubtitle}>
-            {dispenseComplete ? "Verify OTP to generate receipt" : "Bypass Mode: Simulating telemetry"}
-          </Text>
+      <View style={styles.header}>
+        <View style={[styles.banner, dispenseComplete ? styles.bannerComplete : styles.bannerActive]}>
+          {dispenseComplete ? (
+            <CheckCircle2 size={18} color="#FFFFFF" />
+          ) : (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          )}
+          <View style={{ marginLeft: 12 }}>
+            <Text style={styles.bannerTitle}>
+              {dispenseComplete ? "Fueling Successful" : "Dispensing In Progress"}
+            </Text>
+            <Text style={styles.bannerSubtitle}>
+              {dispenseComplete ? "Verify End-OTP with client" : "Hardware Bypass: Simulating Flow"}
+            </Text>
+          </View>
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        <View style={styles.meterArea}>
-          <Text style={styles.mainVolume}>{storeVol || "0.00"}</Text>
-          <Text style={styles.unit}>L</Text>
+      <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+        
+        {/* THE METER CARD (Industrial Dark Theme) */}
+        <View style={styles.meterCard}>
+          <View style={styles.meterHeader}>
+            <Gauge size={16} color="#94A3B8" />
+            <Text style={styles.meterLabel}>LIVE TELEMETRY</Text>
+          </View>
+          <View style={styles.meterValueContainer}>
+            <Text style={styles.mainVolume}>{storeVol || "0.00"}</Text>
+            <Text style={styles.unit}>LTR</Text>
+          </View>
+          <View style={styles.meterFooter}>
+            <View style={styles.pulseDot} />
+            <Text style={styles.meterStatus}>SYNCING VIA BLE 5.0</Text>
+          </View>
         </View>
 
-        <View style={styles.statsRow}>
-          <View>
-            <Text style={styles.statLabel}>Total Amount</Text>
+        {/* STATS CARD (Floating Design) */}
+        <View style={styles.statsCard}>
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Total Cost</Text>
             <Text style={styles.statValue}>₹ {storeAmt || "0.00"}</Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.statLabel}>Rate</Text>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statLabel}>Unit Rate</Text>
             <Text style={styles.statValue}>₹ {RATE}/L</Text>
           </View>
         </View>
 
         {!dispenseComplete ? (
-          <TouchableOpacity style={styles.stopButton} onPress={handleStopDispensing}>
+          <TouchableOpacity 
+            style={styles.stopButton} 
+            onPress={handleStopDispensing}
+            activeOpacity={0.8}
+          >
             <Text style={styles.stopButtonText}>STOP PUMP & FINALIZE</Text>
           </TouchableOpacity>
         ) : (
           <View style={styles.otpSection}>
-            <Text style={styles.otpLabel}>Customer 4-Digit End OTP</Text>
+            <Text style={styles.otpSectionLabel}>Customer Security OTP</Text>
             <View style={styles.otpRow}>
               {[0, 1, 2, 3].map((i) => (
-                <View key={i} style={styles.otpBox}>
-                  <Text style={styles.otpText}>{otpInput[i] || "-"}</Text>
+                <View key={i} style={[styles.otpBox, otpInput.length === i && styles.otpBoxActive]}>
+                  <Text style={styles.otpText}>{otpInput[i] || ""}</Text>
                 </View>
               ))}
               <TextInput
@@ -274,27 +279,106 @@ export default function DispensingScreen({ route, navigation }: any) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#FFFFFF" },
-  banner: { flexDirection: 'row', padding: 20, alignItems: 'center' },
-  bannerActive: { backgroundColor: "#FEF3C7" },
-  bannerComplete: { backgroundColor: "#D1FAE5" },
-  bannerTitle: { fontWeight: "900", color: "#92400E", fontSize: 14 },
-  bannerSubtitle: { color: "#B45309", fontSize: 12, fontWeight: '600' },
-  scroll: { paddingHorizontal: 24, paddingVertical: 40, alignItems: 'center' },
-  meterArea: { flexDirection: 'row', alignItems: 'baseline', marginBottom: 40 },
-  mainVolume: { fontSize: 90, fontWeight: "200", color: "#111827", letterSpacing: -3 },
-  unit: { fontSize: 32, fontWeight: "600", color: "#9CA3AF", marginLeft: 8 },
-  statsRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 50, backgroundColor: '#F9FAFB', padding: 20, borderRadius: 24 },
-  statLabel: { fontSize: 12, color: "#9CA3AF", fontWeight: "700", textTransform: 'uppercase', marginBottom: 4 },
-  statValue: { fontSize: 24, fontWeight: "900", color: "#111827" },
-  stopButton: { width: '100%', backgroundColor: '#111827', padding: 22, borderRadius: 20, alignItems: 'center' },
-  stopButtonText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  header: { paddingHorizontal: 24, paddingVertical: 12 },
+  
+  // Floating Status Pill
+  banner: { 
+    flexDirection: 'row', 
+    padding: 16, 
+    alignItems: 'center', 
+    borderRadius: 16,
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8 },
+      android: { elevation: 4 }
+    })
+  },
+  bannerActive: { backgroundColor: "#F59E0B" }, // Kung Fu Panda Orange
+  bannerComplete: { backgroundColor: "#0284C7" }, // Tech Blue
+  bannerTitle: { fontWeight: "800", color: "#FFFFFF", fontSize: 14 },
+  bannerSubtitle: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: '600' },
+
+  scroll: { paddingHorizontal: 24, paddingVertical: 20, alignItems: 'center' },
+
+  // Dark Industrial Meter Card
+  meterCard: { 
+    width: '100%',
+    backgroundColor: "#0F172A", 
+    borderRadius: 32, 
+    padding: 30, 
+    marginBottom: 24,
+    ...Platform.select({
+      ios: { shadowColor: "#0284C7", shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.2, shadowRadius: 20 },
+      android: { elevation: 10 }
+    })
+  },
+  meterHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  meterLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '800', marginLeft: 8, letterSpacing: 1 },
+  meterValueContainer: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'center' },
+  mainVolume: { fontSize: 84, fontWeight: "900", color: "#FFFFFF", letterSpacing: -2 },
+  unit: { fontSize: 24, fontWeight: "700", color: "#334155", marginLeft: 10 },
+  meterFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20, backgroundColor: 'rgba(255,255,255,0.05)', paddingVertical: 8, borderRadius: 12 },
+  pulseDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981', marginRight: 8 },
+  meterStatus: { color: '#64748B', fontSize: 10, fontWeight: '700', letterSpacing: 0.5 },
+
+  // Floating Stats Card
+  statsCard: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    width: '100%', 
+    marginBottom: 32, 
+    backgroundColor: '#FFFFFF', 
+    padding: 24, 
+    borderRadius: 24,
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.05, shadowRadius: 10 },
+      android: { elevation: 2 }
+    })
+  },
+  statItem: { flex: 1 },
+  statDivider: { width: 1, height: '100%', backgroundColor: '#F1F5F9', marginHorizontal: 20 },
+  statLabel: { fontSize: 11, color: "#94A3B8", fontWeight: "800", textTransform: 'uppercase', marginBottom: 6, letterSpacing: 0.5 },
+  statValue: { fontSize: 22, fontWeight: "800", color: "#0F172A" },
+
+  stopButton: { 
+    width: '100%', 
+    backgroundColor: '#0F172A', 
+    padding: 22, 
+    borderRadius: 20, 
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155'
+  },
+  stopButtonText: { color: '#FFFFFF', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
+
+  // OTP Section
   otpSection: { width: '100%', alignItems: 'center' },
-  otpLabel: { fontSize: 13, fontWeight: '800', color: '#6B7280', marginBottom: 20, textTransform: 'uppercase' },
-  otpRow: { flexDirection: 'row', gap: 12, marginBottom: 30 },
-  otpBox: { width: 60, height: 75, borderWidth: 2, borderColor: '#E5E7EB', borderRadius: 16, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F9FAFB' },
-  otpText: { fontSize: 32, fontWeight: '900', color: '#111827' },
+  otpSectionLabel: { fontSize: 12, fontWeight: '800', color: '#94A3B8', marginBottom: 20, textTransform: 'uppercase', letterSpacing: 1 },
+  otpRow: { flexDirection: 'row', gap: 12, marginBottom: 32 },
+  otpBox: { 
+    width: 65, 
+    height: 80, 
+    backgroundColor: '#F1F5F9', 
+    borderRadius: 16, 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'transparent'
+  },
+  otpBoxActive: { borderColor: '#0284C7', backgroundColor: '#FFFFFF' },
+  otpText: { fontSize: 32, fontWeight: '900', color: '#0F172A' },
   hiddenInput: { position: 'absolute', opacity: 0, width: '100%', height: '100%' },
-  payButton: { width: '100%', backgroundColor: '#4F46E5', padding: 22, borderRadius: 20, alignItems: 'center' },
-  payButtonText: { color: '#fff', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }
+
+  payButton: { 
+    width: '100%', 
+    backgroundColor: '#0284C7', 
+    padding: 22, 
+    borderRadius: 20, 
+    alignItems: 'center',
+    ...Platform.select({
+      ios: { shadowColor: "#0284C7", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12 },
+      android: { elevation: 6 }
+    })
+  },
+  payButtonText: { color: '#FFFFFF', fontWeight: '900', fontSize: 16, letterSpacing: 0.5 }
 });
