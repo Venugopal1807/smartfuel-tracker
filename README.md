@@ -3,15 +3,15 @@
 Offline-First BLE Fuel Delivery Platform
 
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
-![Backend](https://img.shields.io/badge/API-Live%20on%20Railway-blue)
+![Backend](https://img.shields.io/badge/API-Live%20on%20Render-blue)
 ![Stack](https://img.shields.io/badge/Stack-React%20Native%20%7C%20Node.js%20%7C%20PostgreSQL-orange)
 
 ---
 
 ## Live
 
-- API: https://smartfuel-tracker-production.up.railway.app
-- Health Check: https://smartfuel-tracker-production.up.railway.app/api/health
+- API: https://smartfuel-api.onrender.com
+- Health Check: https://smartfuel-api.onrender.com/api/health
 - GitHub: https://github.com/Venugopal1807/smartfuel-tracker
 - Demo Video: *(Recording in progress)*
 - APK: *(EAS build in progress)*
@@ -142,7 +142,7 @@ npx expo start           # scan QR with Expo Go
   Drizzle ORM, PostgreSQL
 - Security: JWT, bcrypt PIN hashing,
   HMAC-SHA256, crypto random IDs
-- Deployment: Railway (backend + database),
+- Deployment: Render (backend) + Neon database,
   Expo EAS (mobile builds)
 
 ---
