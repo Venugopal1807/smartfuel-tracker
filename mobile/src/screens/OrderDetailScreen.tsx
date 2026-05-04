@@ -7,16 +7,16 @@ import {
   StyleSheet,
   ScrollView,
   ActivityIndicator,
-  Alert
+  Alert,
+  Platform
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import axios from "axios";
 import { ChevronLeft, Truck, MapPin, Navigation as NavIcon, Package } from "lucide-react-native";
-import MapView, { UrlTile, Marker } from "react-native-maps";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-// ✅ Import the global store
+// Global Store
 import { useFuelStore } from "../store/useFuelStore";
 
 const { height } = Dimensions.get("window");
@@ -24,18 +24,10 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.5:3000";
 
 export default function OrderDetailScreen() {
   const navigation = useNavigation<any>();
-
-  // ✅ Grab activeOrder and the setter from Zustand
   const { activeOrder: order, setActiveOrder } = useFuelStore();
   const [actionLoading, setActionLoading] = useState(false);
 
-  // 1. Coordinates for the map (Safe fallback if no order)
-  const destCoords = {
-    latitude: parseFloat(order?.latitude) || 17.3850,
-    longitude: parseFloat(order?.longitude) || 78.4867,
-  };
-
-  // 2. ACTION: Update status to 'in_transit' and sync globally
+  // ACTION: Update status to 'in_transit'
   const handleStartTransit = async () => {
     if (!order) return;
 
@@ -43,7 +35,6 @@ export default function OrderDetailScreen() {
       setActionLoading(true);
       const token = await AsyncStorage.getItem("auth_token");
 
-      // Update status on the backend
       const res = await axios.patch(
         `${API_URL}/api/orders/${order.id}/transit`,
         {},
@@ -52,21 +43,13 @@ export default function OrderDetailScreen() {
 
       if (res.data.success) {
         const updatedOrder = { ...order, status: 'in_transit' };
-
-        // ✅ Update the Global Store (This updates the Transit Tab instantly)
         setActiveOrder(updatedOrder);
-
-        // Persist to storage for app restarts
         await AsyncStorage.setItem("active_order", JSON.stringify(updatedOrder));
-
-        // Navigate to the next phase
         navigation.navigate("In Transit");
       }
     } catch (err) {
       console.log("Transit Error:", err);
-      Alert.alert("Offline", "Started transit locally. We'll sync with the server when online.");
-
-      // Fallback for offline: Update locally anyway so the driver can proceed
+      Alert.alert("Offline Mode", "Starting transit locally. Sync will occur when online.");
       const updatedOrder = { ...order, status: 'in_transit' };
       setActiveOrder(updatedOrder);
       navigation.navigate("In Transit");
@@ -75,18 +58,20 @@ export default function OrderDetailScreen() {
     }
   };
 
-  // 3. EMPTY STATE: If the driver clicks the "Timeline" tab without an order
+  // EMPTY STATE
   if (!order) {
     return (
       <SafeAreaView style={styles.center}>
-        <Package size={64} color="#D1D5DB" />
+        <View style={styles.emptyIconBox}>
+           <Package size={48} color="#94A3B8" />
+        </View>
         <Text style={styles.emptyTitle}>No Active Order</Text>
-        <Text style={styles.emptySub}>Select an assigned task from the Dashboard to see your delivery timeline.</Text>
+        <Text style={styles.emptySub}>Select an assigned task from the Dashboard to view your timeline.</Text>
         <TouchableOpacity
           style={styles.dashBtn}
           onPress={() => navigation.navigate("Dashboard")}
         >
-          <Text style={styles.dashBtnText}>Go to Dashboard</Text>
+          <Text style={styles.dashBtnText}>Return to Dashboard</Text>
         </TouchableOpacity>
       </SafeAreaView>
     );
@@ -94,54 +79,41 @@ export default function OrderDetailScreen() {
 
   return (
     <View style={styles.container}>
-      {/* --- 1. OSM MAP HEADER --- */}
+      {/* --- 1. OSM MAP HEADER (Premium Float) --- */}
       <View style={styles.mapContainer}>
-        {/* --- MOCK MAP PLACEHOLDER (No API Key Required) --- */}
-        <View style={[styles.mapContainer, { backgroundColor: '#E5E7EB', justifyContent: 'center', alignItems: 'center' }]}>
-          {/* A simple grid-like background to mimic a map */}
+        <View style={[StyleSheet.absoluteFillObject, { backgroundColor: '#E2E8F0', justifyContent: 'center', alignItems: 'center' }]}>
+          {/* Blueprint Map Grid */}
           <View style={StyleSheet.absoluteFillObject}>
             <View style={{ flex: 1, opacity: 0.1, flexDirection: 'row' }}>
-              {[...Array(10)].map((_, i) => <View key={i} style={{ width: 1, backgroundColor: '#000', height: '100%', marginLeft: 40 }} />)}
+              {[...Array(10)].map((_, i) => <View key={i} style={{ width: 1, backgroundColor: '#0F172A', height: '100%', marginLeft: 40 }} />)}
             </View>
             <View style={[StyleSheet.absoluteFillObject, { opacity: 0.1 }]}>
-              {[...Array(10)].map((_, i) => <View key={i} style={{ height: 1, backgroundColor: '#000', width: '100%', marginTop: 40 }} />)}
+              {[...Array(10)].map((_, i) => <View key={i} style={{ height: 1, backgroundColor: '#0F172A', width: '100%', marginTop: 40 }} />)}
             </View>
           </View>
 
           {/* Center Marker Placeholder */}
           <View style={styles.markerCircle}>
-            <MapPin size={20} color="#fff" />
+            <MapPin size={22} color="#FFFFFF" />
           </View>
-
-          <Text style={{ marginTop: 8, color: '#6B7280', fontWeight: '700', fontSize: 12 }}>
-            MAP PREVIEW (OFFLINE)
-          </Text>
-
-          {/* Keep your existing Back button and Navigation buttons overlayed */}
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ChevronLeft size={24} color="#111827" />
-          </TouchableOpacity>
-
-          <View style={styles.navigateBtn}>
-            <NavIcon size={16} color="#fff" style={{ marginRight: 8 }} />
-            <Text style={styles.navigateText}>Navigate</Text>
-          </View>
+          <Text style={styles.mapPreviewText}>OFFLINE MAP DATA</Text>
         </View>
 
+        {/* Floating Controls */}
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ChevronLeft size={24} color="#111827" />
+          <ChevronLeft size={24} color="#0F172A" />
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.navigateBtn}>
-          <NavIcon size={16} color="#fff" style={{ marginRight: 8 }} />
+          <NavIcon size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
           <Text style={styles.navigateText}>Navigate</Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
-        {/* --- 2. TIMELINE PROGRESS --- */}
-        <Text style={styles.sectionLabel}>Delivery Timeline</Text>
+        {/* --- 2. TIMELINE PROGRESS (Tech Blue) --- */}
+        <Text style={styles.sectionLabel}>Delivery Progress</Text>
         <View style={styles.timelineWrapper}>
           <View style={styles.timelineRow}>
             <View style={styles.stepGroup}>
@@ -151,7 +123,7 @@ export default function OrderDetailScreen() {
             <View style={styles.connector} />
             <View style={styles.stepGroup}>
               <View style={order.status === 'in_transit' ? styles.dotActive : styles.dotInactive} />
-              <Text style={order.status === 'in_transit' ? styles.stepTextActive : styles.stepTextInactive}>On the Way</Text>
+              <Text style={order.status === 'in_transit' ? styles.stepTextActive : styles.stepTextInactive}>In Transit</Text>
             </View>
             <View style={styles.connectorGray} />
             <View style={styles.stepGroup}>
@@ -161,32 +133,35 @@ export default function OrderDetailScreen() {
           </View>
         </View>
 
-        {/* --- 3. CUSTOMER CARD --- */}
+        {/* --- 3. CUSTOMER HERO CARD (Dark Navy) --- */}
         <View style={styles.mainCard}>
           <View style={styles.cardHeader}>
             <View style={styles.iconBox}><View style={styles.greenDot} /></View>
             <View>
-              <Text style={styles.locationName}>{order.customer_name || "Client"}</Text>
-              <Text style={styles.timeEstimate}>Expected Vol: {order.volume_requested || order.quantity || "0"}L</Text>
+              <Text style={styles.locationName}>{order.customer_name || "Client Name Missing"}</Text>
+              <Text style={styles.timeEstimate}>Estimated Volume: <Text style={{ color: '#F8FAFC' }}>{order.volume_requested || order.quantity || "0"} LTR</Text></Text>
             </View>
           </View>
 
           <View style={styles.pricingRow}>
-            <View style={styles.priceItem}>
-              <Text style={styles.priceLabel}>₹ 108 / Liter</Text>
+            <View style={styles.priceBadge}>
+              <Text style={styles.priceLabel}>₹ 108 / L</Text>
             </View>
-            <Text style={styles.totalPrice}>₹ {order.total_price || "Pending"}</Text>
+            <View>
+              <Text style={styles.totalLabel}>Estimated Total</Text>
+              <Text style={styles.totalPrice}>₹ {order.total_price || "0.00"}</Text>
+            </View>
           </View>
         </View>
 
-        {/* --- 4. ADDRESS --- */}
+        {/* --- 4. ADDRESS SECTION --- */}
         <View style={styles.addressSection}>
-          <Text style={styles.addrHeader}>Delivery Address</Text>
+          <Text style={styles.addrHeader}>Destination Details</Text>
           <View style={styles.addrCard}>
             <View style={styles.blueDotContainer}><View style={styles.blueDot} /></View>
             <View style={{ flex: 1 }}>
-              <Text style={styles.addrTitle}>{order.customer_name || "Location"}</Text>
-              <Text style={styles.addrSub}>{order.customer_address || "Address coordinates pinned"}</Text>
+              <Text style={styles.addrTitle}>{order.customer_name || "Delivery Location"}</Text>
+              <Text style={styles.addrSub}>{order.customer_address || "No precise address provided. Relying on coordinates."}</Text>
             </View>
           </View>
         </View>
@@ -194,20 +169,21 @@ export default function OrderDetailScreen() {
         {/* --- 5. FOOTER & START --- */}
         <View style={styles.footer}>
           <View style={styles.vehicleRow}>
-            <Truck size={18} color="#111827" />
-            <Text style={styles.vehicleText}>{order.vehicleNumber || order.vehicle_number || "No Truck Assigned"}</Text>
+            <Truck size={18} color="#64748B" />
+            <Text style={styles.vehicleText}>Asset: <Text style={{ color: '#0F172A' }}>{order.vehicleNumber || order.vehicle_number || "Unassigned"}</Text></Text>
           </View>
 
           <TouchableOpacity
-            style={[styles.startBtn, (actionLoading || order.status === 'in_transit') && { opacity: 0.7 }]}
+            style={[styles.startBtn, (actionLoading || order.status === 'in_transit') && { opacity: 0.6 }]}
             onPress={handleStartTransit}
             disabled={actionLoading || order.status === 'in_transit'}
+            activeOpacity={0.8}
           >
             {actionLoading ? (
-              <ActivityIndicator color="#fff" />
+              <ActivityIndicator color="#FFFFFF" />
             ) : (
               <Text style={styles.startBtnText}>
-                {order.status === 'in_transit' ? "ALREADY IN TRANSIT" : "START TRANSIT"}
+                {order.status === 'in_transit' ? "TRANSIT IN PROGRESS" : "START TRANSIT"}
               </Text>
             )}
           </TouchableOpacity>
@@ -219,53 +195,74 @@ export default function OrderDetailScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40 },
-  emptyTitle: { fontSize: 22, fontWeight: '800', color: '#111827', marginTop: 20 },
-  emptySub: { textAlign: 'center', color: '#6B7280', marginTop: 10, lineHeight: 22 },
-  dashBtn: { marginTop: 30, backgroundColor: '#111827', paddingHorizontal: 30, paddingVertical: 15, borderRadius: 12 },
-  dashBtnText: { color: '#fff', fontWeight: '700' },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  
+  // Empty State
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 40, backgroundColor: '#F8FAFC' },
+  emptyIconBox: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginBottom: 24 },
+  emptyTitle: { fontSize: 24, fontWeight: '900', color: '#0F172A', letterSpacing: -0.5 },
+  emptySub: { textAlign: 'center', color: '#64748B', marginTop: 12, lineHeight: 22, fontSize: 15 },
+  dashBtn: { marginTop: 32, backgroundColor: '#0284C7', paddingHorizontal: 32, paddingVertical: 16, borderRadius: 16 },
+  dashBtnText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
 
-  mapContainer: { height: height * 0.25, backgroundColor: "#E5E7EB", overflow: 'hidden' },
-  markerCircle: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#4F46E5', justifyContent: 'center', alignItems: 'center', borderWidth: 3, borderColor: '#fff' },
-  backBtn: { position: 'absolute', top: 50, left: 16, backgroundColor: '#fff', padding: 8, borderRadius: 10, elevation: 3 },
-  navigateBtn: { position: 'absolute', bottom: 16, right: 16, backgroundColor: '#2563EB', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, elevation: 4, flexDirection: 'row', alignItems: 'center' },
-  navigateText: { color: '#fff', fontWeight: '800', fontSize: 13 },
+  // Premium Map Header
+  mapContainer: { height: height * 0.28, backgroundColor: "#E2E8F0", overflow: 'hidden' },
+  markerCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#0284C7', justifyContent: 'center', alignItems: 'center', borderWidth: 4, borderColor: 'rgba(255,255,255,0.8)', ...Platform.select({ ios: { shadowColor: "#0284C7", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.4, shadowRadius: 10 }, android: { elevation: 8 }}) },
+  mapPreviewText: { marginTop: 12, color: '#64748B', fontWeight: '800', fontSize: 11, letterSpacing: 1 },
+  
+  backBtn: { position: 'absolute', top: 50, left: 20, backgroundColor: '#FFFFFF', padding: 10, borderRadius: 12, ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 8 }, android: { elevation: 4 }}) },
+  navigateBtn: { position: 'absolute', bottom: 20, right: 20, backgroundColor: '#0F172A', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 12, flexDirection: 'row', alignItems: 'center', ...Platform.select({ ios: { shadowColor: "#0F172A", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 6 }, android: { elevation: 4 }}) },
+  navigateText: { color: '#FFFFFF', fontWeight: '800', fontSize: 13 },
 
-  content: { flex: 1, paddingHorizontal: 20 },
-  sectionLabel: { fontSize: 18, fontWeight: '800', color: '#111827', marginTop: 24, marginBottom: 16 },
-  timelineWrapper: { marginBottom: 24 },
+  content: { flex: 1, paddingHorizontal: 24 },
+  
+  // Timeline
+  sectionLabel: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginTop: 32, marginBottom: 20, textTransform: 'uppercase', letterSpacing: 0.5 },
+  timelineWrapper: { marginBottom: 32 },
   timelineRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   stepGroup: { alignItems: 'center', width: 80 },
-  dotActive: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#2563EB', borderWidth: 3, borderColor: '#DBEAFE' },
-  dotInactive: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#D1D5DB' },
-  stepTextActive: { fontSize: 11, fontWeight: '700', color: '#2563EB', marginTop: 8 },
-  stepTextInactive: { fontSize: 11, fontWeight: '600', color: '#9CA3AF', marginTop: 8 },
-  connector: { flex: 1, height: 2, backgroundColor: '#2563EB', marginBottom: 18 },
-  connectorGray: { flex: 1, height: 2, backgroundColor: '#E5E7EB', marginBottom: 18 },
+  dotActive: { width: 14, height: 14, borderRadius: 7, backgroundColor: '#0284C7', borderWidth: 3, borderColor: '#E0F2FE' },
+  dotInactive: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#CBD5E1' },
+  stepTextActive: { fontSize: 11, fontWeight: '800', color: '#0284C7', marginTop: 10, letterSpacing: 0.5 },
+  stepTextInactive: { fontSize: 11, fontWeight: '700', color: '#94A3B8', marginTop: 10 },
+  connector: { flex: 1, height: 3, backgroundColor: '#0284C7', marginBottom: 20 },
+  connectorGray: { flex: 1, height: 3, backgroundColor: '#E2E8F0', marginBottom: 20 },
 
-  mainCard: { backgroundColor: '#F9FAFB', borderRadius: 16, padding: 16, borderWidth: 1, borderColor: '#F3F4F6' },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 16 },
-  iconBox: { width: 32, height: 32, backgroundColor: '#fff', borderRadius: 8, justifyContent: 'center', alignItems: 'center', marginRight: 12, borderWidth: 1, borderColor: '#E5E7EB' },
-  greenDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#10B981' },
-  locationName: { fontSize: 16, fontWeight: '800', color: '#111827' },
-  timeEstimate: { fontSize: 12, color: '#6B7280', fontWeight: '600' },
-  pricingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingTop: 12 },
-  priceItem: { backgroundColor: '#fff', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: '#E5E7EB' },
-  priceLabel: { fontSize: 13, fontWeight: '700', color: '#374151' },
-  totalPrice: { fontSize: 18, fontWeight: '900', color: '#111827' },
+  // Hero Card (Dark Theme)
+  mainCard: { backgroundColor: '#0F172A', borderRadius: 24, padding: 24, ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16 }, android: { elevation: 6 }}) },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+  iconBox: { width: 36, height: 36, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  greenDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' },
+  locationName: { fontSize: 18, fontWeight: '800', color: '#FFFFFF' },
+  timeEstimate: { fontSize: 13, color: '#94A3B8', fontWeight: '600', marginTop: 4 },
+  
+  pricingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderTopWidth: 1, borderTopColor: '#334155', paddingTop: 16 },
+  priceBadge: { backgroundColor: 'rgba(255,255,255,0.1)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  priceLabel: { fontSize: 13, fontWeight: '800', color: '#94A3B8' },
+  totalLabel: { fontSize: 11, color: '#94A3B8', fontWeight: '700', textAlign: 'right', marginBottom: 2, textTransform: 'uppercase' },
+  totalPrice: { fontSize: 22, fontWeight: '900', color: '#FFFFFF' },
 
-  addressSection: { marginTop: 24 },
-  addrHeader: { fontSize: 14, fontWeight: '700', color: '#9CA3AF', marginBottom: 12 },
-  addrCard: { flexDirection: 'row', gap: 12 },
-  blueDotContainer: { paddingTop: 4 },
-  blueDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#2563EB', borderWidth: 2, borderColor: '#DBEAFE' },
-  addrTitle: { fontSize: 15, fontWeight: '800', color: '#111827' },
-  addrSub: { fontSize: 12, color: '#6B7280', marginBottom: 8 },
+  // Address
+  addressSection: { marginTop: 16 },
+  addrHeader: { fontSize: 12, fontWeight: '800', color: '#94A3B8', marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 },
+  addrCard: { flexDirection: 'row', gap: 16, backgroundColor: '#FFFFFF', padding: 20, borderRadius: 20, ...Platform.select({ ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.04, shadowRadius: 8 }, android: { elevation: 2 }}) },
+  blueDotContainer: { paddingTop: 5 },
+  blueDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#0284C7', borderWidth: 3, borderColor: '#E0F2FE' },
+  addrTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  addrSub: { fontSize: 13, color: '#64748B', lineHeight: 20 },
 
-  footer: { marginTop: 40, marginBottom: 30 },
-  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16, justifyContent: 'center' },
-  vehicleText: { fontSize: 14, fontWeight: '700', color: '#111827' },
-  startBtn: { backgroundColor: '#111827', paddingVertical: 18, borderRadius: 16, alignItems: 'center' },
-  startBtnText: { color: '#fff', fontWeight: '800', fontSize: 16 },
+  // Footer Actions
+  footer: { marginTop: 40, alignItems: 'center' },
+  vehicleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 20, backgroundColor: '#E2E8F0', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 100 },
+  vehicleText: { fontSize: 13, fontWeight: '800', color: '#64748B', textTransform: 'uppercase' },
+  
+  startBtn: { 
+    width: '100%', 
+    backgroundColor: '#F59E0B', // Kung Fu Panda Orange
+    paddingVertical: 20, 
+    borderRadius: 20, 
+    alignItems: 'center',
+    ...Platform.select({ ios: { shadowColor: "#F59E0B", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.25, shadowRadius: 10 }, android: { elevation: 6 }}) 
+  },
+  startBtnText: { color: '#FFFFFF', fontWeight: '900', fontSize: 16, letterSpacing: 1 },
 });
