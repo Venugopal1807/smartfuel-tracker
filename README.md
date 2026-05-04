@@ -3,7 +3,7 @@
 Offline-First BLE Fuel Delivery Platform
 
 ![Status](https://img.shields.io/badge/Status-Active%20Development-brightgreen)
-![Backend](https://img.shields.io/badge/API-Live%20on%20Railway-blue)
+![Backend](https://img.shields.io/badge/API-Live%20on%20Render-blue)
 ![Stack](https://img.shields.io/badge/Stack-React%20Native%20%7C%20Node.js%20%7C%20PostgreSQL-orange)
 
 ---
