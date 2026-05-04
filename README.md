@@ -10,8 +10,8 @@ Offline-First BLE Fuel Delivery Platform
 
 ## Live
 
-- API: https://smartfuel-tracker-production.up.railway.app
-- Health Check: https://smartfuel-tracker-production.up.railway.app/api/health
+- API: https://smartfuel-api.onrender.com
+- Health Check: https://smartfuel-api.onrender.com/api/health
 - GitHub: https://github.com/Venugopal1807/smartfuel-tracker
 - Demo Video: *(Recording in progress)*
 - APK: *(EAS build in progress)*
