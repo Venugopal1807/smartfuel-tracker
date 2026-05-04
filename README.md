@@ -142,7 +142,7 @@ npx expo start           # scan QR with Expo Go
   Drizzle ORM, PostgreSQL
 - Security: JWT, bcrypt PIN hashing,
   HMAC-SHA256, crypto random IDs
-- Deployment: Railway (backend + database),
+- Deployment: Render (backend) + Neon database,
   Expo EAS (mobile builds)
 
 ---
