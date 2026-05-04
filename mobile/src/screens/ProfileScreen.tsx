@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { 
   View, Text, TextInput, TouchableOpacity, Alert, 
   ActivityIndicator, StyleSheet, ScrollView, 
-  KeyboardAvoidingView, Platform 
+  KeyboardAvoidingView, Platform, RefreshControl 
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -13,7 +13,7 @@ import { User, Landmark, Edit3, Check, X, LogOut, ChevronLeft } from "lucide-rea
 import { enqueueSyncEvent } from "../db/sqlite";
 import { useFuelStore } from "../store/useFuelStore"; 
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.5:3000";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://192.168.1.3:3000";
 
 interface ProfileScreenProps {
   onLogout: () => void;
@@ -22,6 +22,7 @@ interface ProfileScreenProps {
 const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   const navigation = useNavigation<any>();
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
 
   // Global Vehicle State
@@ -84,11 +85,17 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
     }
   };
 
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await fetchProfile();
+    setRefreshing(false);
+  }, []);
+
   useEffect(() => {
     fetchProfile();
   }, []);
 
-  // Sync local edit field with global state if it changes externally (e.g. from Dashboard)
+  // Sync local edit field with global state if it changes externally
   useEffect(() => {
     if (activeVehicle && !isEditing) {
       setEditVehicleNumber(activeVehicle);
@@ -151,7 +158,7 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
           value={value} 
           onChangeText={onChange} 
           placeholder={placeholder}
-          placeholderTextColor="#9CA3AF"
+          placeholderTextColor="#94A3B8"
         />
       ) : (
         <Text style={styles.valueText}>{value || "Not Set"}</Text>
@@ -160,41 +167,51 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
   );
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ChevronLeft size={24} color="#111827" />
+          <ChevronLeft size={28} color="#0F172A" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profile Settings</Text>
+        <Text style={styles.headerTitle}>Asset Profile</Text>
         <TouchableOpacity 
           onPress={() => (isEditing ? onSave() : setIsEditing(true))}
-          style={styles.editBtn}
+          style={[styles.editBtn, isEditing ? styles.editBtnActive : null]}
         >
-          {isEditing ? <Check size={20} color="#10B981" /> : <Edit3 size={20} color="#4F46E5" />}
+          {isEditing ? <Check size={20} color="#FFFFFF" /> : <Edit3 size={20} color="#0284C7" />}
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
-        {loading && !isEditing ? (
-          <ActivityIndicator size="large" color="#4F46E5" style={{ marginTop: 50 }} />
+      <ScrollView 
+        contentContainerStyle={styles.scroll}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#0284C7"]} />
+        }
+      >
+        {loading && !isEditing && !refreshing ? (
+          <ActivityIndicator size="large" color="#0284C7" style={{ marginTop: 50 }} />
         ) : (
           <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+            
             {/* Personal Details Card */}
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <User size={18} color="#4F46E5" />
-                <Text style={styles.cardTitle}>Personal Details</Text>
+                <View style={styles.iconWrapper}>
+                  <User size={18} color="#0284C7" />
+                </View>
+                <Text style={styles.cardTitle}>Operator Details</Text>
               </View>
               {renderInfoRow("Full Name", name, "Enter your name", setName)}
-              {/* Note: We render the activeVehicle from global state when not editing */}
-              {renderInfoRow("Vehicle Number", isEditing ? editVehicleNumber : (activeVehicle || ""), "e.g. TS-09-XX-0000", setEditVehicleNumber)}
+              {renderInfoRow("Assigned Asset", isEditing ? editVehicleNumber : (activeVehicle || ""), "e.g. TS-09-XX-0000", setEditVehicleNumber)}
             </View>
 
             {/* Bank Details Card */}
             <View style={styles.card}>
               <View style={styles.cardHeader}>
-                <Landmark size={18} color="#4F46E5" />
-                <Text style={styles.cardTitle}>Bank Details</Text>
+                <View style={styles.iconWrapper}>
+                  <Landmark size={18} color="#0284C7" />
+                </View>
+                <Text style={styles.cardTitle}>Payout Details</Text>
               </View>
               {renderInfoRow("Bank Name", bankName, "e.g. HDFC Bank", setBankName)}
               {renderInfoRow("Account Number", accountNumber, "Enter account number", setAccountNumber)}
@@ -204,17 +221,18 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
             {isEditing && (
               <TouchableOpacity style={styles.cancelBtn} onPress={() => {
                 setIsEditing(false);
-                setEditVehicleNumber(activeVehicle || ""); // Reset local edit state
+                setEditVehicleNumber(activeVehicle || ""); 
               }}>
-                <X size={18} color="#EF4444" style={{ marginRight: 8 }} />
+                <X size={20} color="#64748B" style={{ marginRight: 8 }} />
                 <Text style={styles.cancelBtnText}>Discard Changes</Text>
               </TouchableOpacity>
             )}
 
             <TouchableOpacity style={styles.logoutBtn} onPress={onLogout}>
-              <LogOut size={18} color="#EF4444" style={{ marginRight: 8 }} />
-              <Text style={styles.logoutBtnText}>Logout Account</Text>
+              <LogOut size={20} color="#DC2626" style={{ marginRight: 8 }} />
+              <Text style={styles.logoutBtnText}>Terminate Session</Text>
             </TouchableOpacity>
+
           </KeyboardAvoidingView>
         )}
       </ScrollView>
@@ -223,23 +241,62 @@ const ProfileScreen: React.FC<ProfileScreenProps> = ({ onLogout }) => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F3F4F6" },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, backgroundColor: '#fff' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  backBtn: { padding: 4 },
-  editBtn: { backgroundColor: '#F3F4F6', padding: 10, borderRadius: 12 },
-  scroll: { padding: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 20, marginBottom: 20, elevation: 2, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 10 },
-  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20, gap: 10 },
-  cardTitle: { fontSize: 15, fontWeight: '700', color: '#374151' },
-  infoRow: { marginBottom: 16 },
-  label: { fontSize: 12, color: '#9CA3AF', fontWeight: '700', marginBottom: 6, textTransform: 'uppercase' },
-  valueText: { fontSize: 16, color: '#111827', fontWeight: '600' },
-  input: { fontSize: 16, color: '#111827', borderBottomWidth: 1.5, borderBottomColor: '#E5E7EB', paddingVertical: 4, fontWeight: '600' },
-  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 15 },
-  cancelBtnText: { color: '#EF4444', fontWeight: '700' },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginTop: 20, backgroundColor: '#FEE2E2', padding: 16, borderRadius: 12 },
-  logoutBtnText: { color: '#EF4444', fontWeight: '700' }
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  
+  // Header matching the clean Stitch look
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 24, paddingVertical: 16, backgroundColor: '#F8FAFC' },
+  headerTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', letterSpacing: -0.5 },
+  backBtn: { padding: 4, marginLeft: -8 },
+  editBtn: { backgroundColor: '#E0F2FE', padding: 12, borderRadius: 16 },
+  editBtnActive: { backgroundColor: '#F59E0B' }, // Orange for Save action
+  
+  scroll: { padding: 20, paddingBottom: 60 },
+  
+  // Floating White Cards
+  card: { 
+    backgroundColor: '#FFFFFF', 
+    borderRadius: 24, 
+    padding: 24, 
+    marginBottom: 20, 
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.05, shadowRadius: 12 },
+      android: { elevation: 3 }
+    })
+  },
+  cardHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 24 },
+  iconWrapper: { width: 36, height: 36, borderRadius: 12, backgroundColor: '#F0F9FF', justifyContent: 'center', alignItems: 'center', marginRight: 12 },
+  cardTitle: { fontSize: 16, fontWeight: '800', color: '#0F172A' },
+  
+  // Data Rows
+  infoRow: { marginBottom: 20 },
+  label: { fontSize: 12, color: '#94A3B8', fontWeight: '800', marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 },
+  valueText: { fontSize: 16, color: '#0F172A', fontWeight: '700' },
+  
+  // Input Bubbles for Edit Mode
+  input: { 
+    fontSize: 16, 
+    color: '#0F172A', 
+    backgroundColor: '#F1F5F9', 
+    paddingHorizontal: 16, 
+    paddingVertical: 14, 
+    borderRadius: 12, 
+    fontWeight: '600' 
+  },
+  
+  // Action Buttons
+  cancelBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 16, marginBottom: 8 },
+  cancelBtnText: { color: '#64748B', fontWeight: '700', fontSize: 16 },
+  
+  logoutBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    justifyContent: 'center', 
+    marginTop: 10, 
+    backgroundColor: '#FEF2F2', 
+    padding: 18, 
+    borderRadius: 16 
+  },
+  logoutBtnText: { color: '#DC2626', fontWeight: '800', fontSize: 16 }
 });
 
 export default ProfileScreen;

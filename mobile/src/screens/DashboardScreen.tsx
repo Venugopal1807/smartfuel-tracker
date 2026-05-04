@@ -9,7 +9,8 @@ import {
   Modal, 
   FlatList,
   Alert,
-  RefreshControl
+  RefreshControl,
+  Platform
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -68,8 +69,6 @@ export default function DashboardScreen() {
     try {
       const headers = await getHeaders();
       if (!headers.Authorization.includes("Bearer null")) {
-        
-        // Fetch Profile
         const profileRes = await fetch(`${API_URL}/api/auth/profile`, { headers });
         const profileData = await profileRes.json();
         
@@ -84,7 +83,6 @@ export default function DashboardScreen() {
             setActiveVehicle(p.vehicleNumber);
           }
 
-          // Fetch Vehicles
           const vehicleRes = await fetch(`${API_URL}/api/auth/vehicles/pump`, { headers });
           const vehicleData = await vehicleRes.json();
           
@@ -119,7 +117,6 @@ export default function DashboardScreen() {
     }
   };
 
-  // Pull-to-Refresh Handler
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await Promise.all([
@@ -169,8 +166,6 @@ export default function DashboardScreen() {
 
   const handleVehicleChange = async (vehicleReg: string) => {
     const previousVehicle = activeVehicle;
-    
-    // 1. Optimistic UI Update
     setActiveVehicle(vehicleReg);
     setShowVehiclePicker(false);
 
@@ -182,19 +177,14 @@ export default function DashboardScreen() {
         body: JSON.stringify({ vehicle_number: vehicleReg })
       });
 
-      // 2. Concurrency Lock Rollback 
       if (res.status === 409) {
         setActiveVehicle(previousVehicle);
         Alert.alert("Vehicle Unavailable", "This vehicle was just claimed by another driver.");
         return;
       }
-
-      if (!res.ok) {
-        throw new Error("HTTP_ERROR");
-      }
+      if (!res.ok) throw new Error("HTTP_ERROR");
       
     } catch (err: any) {
-      // 3. Offline Queue Logic 
       if (err.message !== "HTTP_ERROR") {
         await enqueueSyncEvent("VEHICLE_SWITCH_SYNC", { vehicle_number: vehicleReg });
         Alert.alert("Offline Mode", "Vehicle switch queued locally. Will sync automatically.");
@@ -208,7 +198,6 @@ export default function DashboardScreen() {
   useEffect(() => { fetchProfileAndVehicles(); }, []);
   useEffect(() => { fetchOrders(); }, [tab]);
 
-  // UI Render Remains Exactly the Same
   return (
     <SafeAreaView style={styles.safeArea} edges={['top']}>
       <View style={styles.container}>
@@ -225,25 +214,32 @@ export default function DashboardScreen() {
             </View>
           </View>
           <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.iconBtn}><Bell size={22} color="#1F2937" /></TouchableOpacity>
-            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={[styles.iconBtn, { marginLeft: 12 }]}><User size={22} color="#1F2937" /></TouchableOpacity>
+            <TouchableOpacity style={styles.iconBtn}><Bell size={24} color="#0F172A" /></TouchableOpacity>
+            <TouchableOpacity onPress={() => navigation.navigate('Profile')} style={[styles.iconBtn, { marginLeft: 16 }]}><User size={24} color="#0F172A" /></TouchableOpacity>
           </View>
         </View>
 
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollPadding}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.scrollPadding}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#0284C7"]} />
+          }
+        >
           
+          {/* THE HERO CARD (Dark Slate Theme) */}
           <View style={styles.vehicleSection}>
             <View style={styles.sectionHeader}>
-              <View style={styles.iconBox}><Truck size={16} color="#4B5563" /></View>
-              <Text style={styles.sectionTitle}>Active Vehicle</Text>
+              <View style={styles.iconBox}><Truck size={18} color="#E2E8F0" /></View>
+              <Text style={styles.sectionTitle}>Active Asset</Text>
             </View>
             <TouchableOpacity style={styles.vehiclePicker} onPress={() => setShowVehiclePicker(true)}>
               <Text style={styles.pickerValue}>{activeVehicle || "Select Vehicle"}</Text>
-              <ChevronDown size={18} color="#9CA3AF" />
+              <ChevronDown size={20} color="#94A3B8" />
             </TouchableOpacity>
           </View>
 
-          {/* TABS */}
+          {/* TABS (Tech Blue Active State) */}
           <View style={styles.tabWrapper}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabInner}>
               {TABS.map((t) => (
@@ -258,21 +254,24 @@ export default function DashboardScreen() {
             </ScrollView>
           </View>
 
-          {/* LIST */}
+          {/* LIST (Floating White Cards with Shadows) */}
           <View style={styles.listSection}>
-            {loading ? (
-              <ActivityIndicator color="#4F46E5" style={{ marginTop: 20 }} />
+            {loading && !refreshing ? (
+              <ActivityIndicator color="#0284C7" style={{ marginTop: 40 }} size="large" />
             ) : (
               orders.map((order) => (
                 <View key={order.id} style={styles.card}>
                   <View style={styles.cardHeader}>
                     <Text style={styles.volumeText}>{`${order.expected_volume || "0.0"} L`}</Text>
-                    <Text style={styles.orderNumberLabel}>{`#${order.id.substring(0,8).toUpperCase()}`}</Text>
+                    <Text style={styles.orderNumberLabel}>{`ID: ${order.id.substring(0,8).toUpperCase()}`}</Text>
                   </View>
                   <View style={styles.locationRow}>
-                    <MapPin size={14} color="#6B7280" style={{ marginRight: 6 }} />
-                    <Text style={styles.addressText} numberOfLines={1}>
-                      {`${order.customer_name || "Client"} - ${order.customer_address || "No Address"}`}
+                    <View style={styles.locationIconWrapper}>
+                       <MapPin size={16} color="#0284C7" />
+                    </View>
+                    <Text style={styles.addressText} numberOfLines={2}>
+                      <Text style={styles.customerNameText}>{order.customer_name || "Client"}</Text>{"\n"}
+                      {order.customer_address || "No Address"}
                     </Text>
                   </View>
                   <View style={styles.cardFooter}>
@@ -281,11 +280,11 @@ export default function DashboardScreen() {
                     </View>
                     
                     <TouchableOpacity 
-                      style={[styles.actionBtn, tab === "New" && { backgroundColor: '#10B981' }]} 
+                      style={[styles.actionBtn, tab === "New" ? styles.actionBtnOrange : styles.actionBtnNavy]} 
                       onPress={() => tab === "New" ? handleAcceptOrder(order.id) : handleViewOrder(order)}
                     >
                       <Text style={styles.actionBtnText}>
-                        {tab === "New" ? "Accept" : "View Details"}
+                        {tab === "New" ? "Accept Order" : "View Details"}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -295,11 +294,12 @@ export default function DashboardScreen() {
           </View>
         </ScrollView>
 
-        <Modal visible={showVehiclePicker} transparent animationType="slide">
+        {/* MODAL */}
+        <Modal visible={showVehiclePicker} transparent animationType="fade">
           <View style={styles.modalOverlay}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <Text style={styles.modalTitle}>Select Vehicle</Text>
+                <Text style={styles.modalTitle}>Select Asset</Text>
                 <TouchableOpacity onPress={() => setShowVehiclePicker(false)}><Text style={styles.closeText}>Cancel</Text></TouchableOpacity>
               </View>
               <FlatList
@@ -308,10 +308,10 @@ export default function DashboardScreen() {
                 renderItem={({ item }) => (
                   <TouchableOpacity style={styles.vehicleItem} onPress={() => handleVehicleChange(item.reg)}>
                     <View style={styles.vehicleItemLeft}>
-                      <Truck size={20} color={activeVehicle === item.reg ? "#4F46E5" : "#6B7280"} />
+                      <Truck size={22} color={activeVehicle === item.reg ? "#0284C7" : "#94A3B8"} />
                       <Text style={[styles.vehicleRegText, activeVehicle === item.reg && styles.activeVehicleText]}>{item.reg}</Text>
                     </View>
-                    {activeVehicle === item.reg && <Check size={20} color="#4F46E5" />}
+                    {activeVehicle === item.reg && <View style={styles.checkCircle}><Check size={14} color="#fff" /></View>}
                   </TouchableOpacity>
                 )}
               />
@@ -325,51 +325,87 @@ export default function DashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: "#fff" },
-  container: { flex: 1, backgroundColor: "#F9FAFB" },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 12, backgroundColor: "#fff", borderBottomWidth: 1, borderBottomColor: "#F3F4F6" },
+  safeArea: { flex: 1, backgroundColor: "#F8FAFC" },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  
+  // Clean Header
+  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 24, paddingVertical: 16, backgroundColor: "#F8FAFC" },
   headerLeft: { flexDirection: "row", alignItems: "center" },
-  initialsCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#EEF2FF", justifyContent: "center", alignItems: "center", marginRight: 12, borderWidth: 1, borderColor: "#C7D2FE" },
-  initialsText: { fontWeight: "bold", color: "#4F46E5", fontSize: 14 },
+  initialsCircle: { width: 44, height: 44, borderRadius: 22, backgroundColor: "#E0F2FE", justifyContent: "center", alignItems: "center", marginRight: 14 },
+  initialsText: { fontWeight: "800", color: "#0284C7", fontSize: 16 },
   welcomeTextGroup: { justifyContent: "center" },
-  welcomeSub: { fontSize: 11, color: "#6B7280" },
-  driverName: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  welcomeSub: { fontSize: 13, color: "#64748B", fontWeight: "500" },
+  driverName: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
   headerRight: { flexDirection: "row", alignItems: "center" },
   iconBtn: { padding: 4 },
-  scrollPadding: { paddingBottom: 30 },
-  vehicleSection: { margin: 16, padding: 16, backgroundColor: "#fff", borderRadius: 12, borderWidth: 1, borderColor: "#E5E7EB" },
-  sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 12 },
-  iconBox: { width: 28, height: 28, backgroundColor: "#F3F4F6", borderRadius: 6, justifyContent: "center", alignItems: "center", marginRight: 8 },
-  sectionTitle: { fontWeight: "700", fontSize: 14, color: "#4B5563" },
-  vehiclePicker: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 12, backgroundColor: "#F9FAFB", borderRadius: 8, borderWidth: 1, borderColor: "#E5E7EB" },
-  pickerValue: { fontSize: 15, fontWeight: "700", color: "#111827" },
-  tabWrapper: { marginBottom: 16 },
-  tabInner: { paddingHorizontal: 16, gap: 8 },
-  miniTab: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, backgroundColor: "#fff", borderWidth: 1, borderColor: "#E5E7EB" },
-  miniTabActive: { backgroundColor: "#111827", borderColor: "#111827" },
-  miniTabText: { fontSize: 13, fontWeight: "600", color: "#6B7280" },
-  miniTabTextActive: { color: "#fff" },
-  listSection: { paddingHorizontal: 16 },
-  card: { backgroundColor: "#fff", borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: "#E5E7EB" },
-  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  volumeText: { fontSize: 20, fontWeight: "900", color: "#111827" },
-  orderNumberLabel: { fontSize: 12, fontWeight: "700", color: "#9CA3AF" },
-  locationRow: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
-  addressText: { color: "#6B7280", fontSize: 13, flex: 1 },
-  cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", borderTopWidth: 1, borderTopColor: "#F3F4F6", paddingTop: 12 },
-  distanceBadge: { backgroundColor: "#ECFDF5", paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  distanceText: { color: "#10B981", fontSize: 12, fontWeight: "700" },
-  actionBtn: { backgroundColor: "#111827", paddingVertical: 8, paddingHorizontal: 16, borderRadius: 8 },
-  actionBtnText: { color: "#fff", fontWeight: "700", fontSize: 14 },
-  emptyCard: { padding: 40, alignItems: "center", justifyContent: "center" },
-  emptyTitle: { color: "#9CA3AF", fontWeight: "600" },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  modalContent: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '60%' },
-  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: '#111827' },
-  closeText: { color: '#6B7280', fontWeight: '600' },
-  vehicleItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#F9FAFB' },
+  scrollPadding: { paddingBottom: 40 },
+  
+  // Hero Card (Dark Theme Inversion)
+  vehicleSection: { 
+    marginHorizontal: 20, 
+    marginBottom: 24,
+    padding: 20, 
+    backgroundColor: "#0F172A", // Deep Navy
+    borderRadius: 24, 
+    ...Platform.select({
+      ios: { shadowColor: "#0284C7", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.15, shadowRadius: 16 },
+      android: { elevation: 8 }
+    })
+  },
+  sectionHeader: { flexDirection: "row", alignItems: "center", marginBottom: 16 },
+  iconBox: { width: 32, height: 32, backgroundColor: "rgba(255,255,255,0.1)", borderRadius: 10, justifyContent: "center", alignItems: "center", marginRight: 12 },
+  sectionTitle: { fontWeight: "600", fontSize: 14, color: "#94A3B8", textTransform: 'uppercase', letterSpacing: 0.5 },
+  vehiclePicker: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 16, backgroundColor: "rgba(255,255,255,0.05)", borderRadius: 16 },
+  pickerValue: { fontSize: 17, fontWeight: "700", color: "#FFFFFF" },
+  
+  // Tab Navigation
+  tabWrapper: { marginBottom: 20 },
+  tabInner: { paddingHorizontal: 20, gap: 10 },
+  miniTab: { paddingHorizontal: 20, paddingVertical: 10, borderRadius: 100, backgroundColor: "#F1F5F9" },
+  miniTabActive: { backgroundColor: "#0284C7" }, // Tech Blue
+  miniTabText: { fontSize: 14, fontWeight: "700", color: "#64748B" },
+  miniTabTextActive: { color: "#FFFFFF" },
+  
+  // Floating Order Cards
+  listSection: { paddingHorizontal: 20 },
+  card: { 
+    backgroundColor: "#FFFFFF", 
+    borderRadius: 24, 
+    padding: 20, 
+    marginBottom: 16, 
+    ...Platform.select({
+      ios: { shadowColor: "#000", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 12 },
+      android: { elevation: 4 }
+    })
+  },
+  cardHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 16 },
+  volumeText: { fontSize: 24, fontWeight: "900", color: "#0F172A", letterSpacing: -0.5 },
+  orderNumberLabel: { fontSize: 12, fontWeight: "700", color: "#94A3B8", backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  
+  locationRow: { flexDirection: "row", alignItems: "flex-start", marginBottom: 20, backgroundColor: '#F8FAFC', padding: 12, borderRadius: 12 },
+  locationIconWrapper: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#E0F2FE', justifyContent: 'center', alignItems: 'center', marginRight: 12, marginTop: 2 },
+  addressText: { color: "#64748B", fontSize: 13, flex: 1, lineHeight: 20 },
+  customerNameText: { color: "#0F172A", fontWeight: "700", fontSize: 14 },
+  
+  cardFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  distanceBadge: { backgroundColor: "#F0FDF4", paddingHorizontal: 12, paddingVertical: 6, borderRadius: 100 },
+  distanceText: { color: "#16A34A", fontSize: 13, fontWeight: "800" }, // Green for distance/arrival
+  
+  // Action Buttons
+  actionBtn: { paddingVertical: 12, paddingHorizontal: 20, borderRadius: 14 },
+  actionBtnOrange: { backgroundColor: "#F59E0B" }, // Kung Fu Panda Orange for primary action
+  actionBtnNavy: { backgroundColor: "#0F172A" }, // Navy for secondary
+  actionBtnText: { color: "#FFFFFF", fontWeight: "800", fontSize: 14 },
+  
+  // Modal Enhancements
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(15, 23, 42, 0.6)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: '#FFFFFF', borderTopLeftRadius: 32, borderTopRightRadius: 32, padding: 24, maxHeight: '65%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 },
+  modalTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A' },
+  closeText: { color: '#64748B', fontWeight: '700', fontSize: 16 },
+  vehicleItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   vehicleItemLeft: { flexDirection: 'row', alignItems: 'center' },
-  vehicleRegText: { fontSize: 16, fontWeight: '600', color: '#374151', marginLeft: 15 },
-  activeVehicleText: { color: '#4F46E5', fontWeight: '800' }
+  vehicleRegText: { fontSize: 17, fontWeight: '600', color: '#475569', marginLeft: 16 },
+  activeVehicleText: { color: '#0284C7', fontWeight: '800' },
+  checkCircle: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#0284C7', justifyContent: 'center', alignItems: 'center' }
 });
